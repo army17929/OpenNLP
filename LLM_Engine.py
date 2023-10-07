@@ -12,23 +12,16 @@ from sklearn.model_selection import train_test_split
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-class LLM():
-    def __init__(self,df,checkpoint:str,input_col:str,output_col:str,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42,
-                 BERT=False): # Model name should be BERT,GPT or LLAMA
+class BERT():
+    def __init__(self,df,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42): # Model name should be BERT,GPT or LLAMA
         self.df=df # Data we want to fine tune the model with. 
-        self.checkpoint=checkpoint # model checkpoint
+        self.checkpoint='bert-base-uncased' # model checkpoint
         self.X=df[input_col] # Raw input data
         self.y=df[output_col] # Raw output data
-        if BERT==True:
-            self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset_BERT(X=self.X,
+        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset_BERT(X=self.X,
                                                                     y=self.y,test_size=test_size,
-                                                                   val_size=val_size,checkpoint=checkpoint,
-                                                                    seed=seed,max_length=max_length)
-        else:
-            self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset(X=self.X,
-                                                                    y=self.y,test_size=test_size,
-                                                                   val_size=val_size,checkpoint=checkpoint,
+                                                                   val_size=val_size,checkpoint=self.checkpoint,
                                                                     seed=seed,max_length=max_length)
     
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int):
@@ -60,37 +53,6 @@ class LLM():
         start=time.time()
         BERTTrainerSingle.train(max_epochs=const['total_epochs'])
         BERTTrainerSingle.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
-        end=time.time()
-        print(f'RUNTIME : {end-start}')
-
-    def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int):
-        # Dataset is ready, let us prepare the model 
-        model=GPTCustomClassificationModel(
-            checkpoint=AutoModel.from_pretrained(self.checkpoint),
-                                        num_class=3)
-        print(model)
-
-        # Let's specify out learning parameters.
-        const=prepare_const(num_epochs=epochs,batch_size=bs,
-                            lr=lr,save_every=save_every,
-                            model_name='GPT2')
-
-        # Load the data on the dataloader
-        train_dataloader,test_dataloader,val_dataloader=dataloader_single(trainset=self.train_dataset,
-                                                        testset=self.test_dataset,
-                                                        valset=self.val_dataset,
-                                                        bs=const['batch_size'])
-        # Create an instance from the Trianer single class
-        GPTTrainerSingle=TrainerSingle(gpu_id=0,
-                                        model=model,
-                                        trainloader=train_dataloader,
-                                        testloader=test_dataloader,
-                                        valloader=val_dataloader,
-                                        const=const)
-
-        start=time.time()
-        GPTTrainerSingle.train(max_epochs=const['total_epochs'])
-        GPTTrainerSingle.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
         end=time.time()
         print(f'RUNTIME : {end-start}')
 
@@ -140,6 +102,49 @@ class LLM():
         end=time.time()
         print(f"RUNTIME : {end-start}")
 
+class GPT():
+    def __init__(self,df,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42): # Model name should be BERT,GPT or LLAMA
+        self.df=df # Data we want to fine tune the model with. 
+        self.checkpoint='gpt2' # model checkpoint
+        self.X=df[input_col] # Raw input data
+        self.y=df[output_col] # Raw output data
+        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset(X=self.X,
+                                                                    y=self.y,test_size=test_size,
+                                                                   val_size=val_size,checkpoint=self.checkpoint,
+                                                                    seed=seed,max_length=max_length)
+        
+    def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int):
+        # Dataset is ready, let us prepare the model 
+        model=GPTCustomClassificationModel(
+            checkpoint=AutoModel.from_pretrained(self.checkpoint),
+                                        num_class=3)
+        print(model)
+
+        # Let's specify out learning parameters.
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name='GPT2')
+
+        # Load the data on the dataloader
+        train_dataloader,test_dataloader,val_dataloader=dataloader_single(trainset=self.train_dataset,
+                                                        testset=self.test_dataset,
+                                                        valset=self.val_dataset,
+                                                        bs=const['batch_size'])
+        # Create an instance from the Trianer single class
+        GPTTrainerSingle=TrainerSingle(gpu_id=0,
+                                        model=model,
+                                        trainloader=train_dataloader,
+                                        testloader=test_dataloader,
+                                        valloader=val_dataloader,
+                                        const=const)
+
+        start=time.time()
+        GPTTrainerSingle.train(max_epochs=const['total_epochs'])
+        GPTTrainerSingle.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
+        end=time.time()
+        print(f'RUNTIME : {end-start}')
+
     def GPT_DDP(self,rank:int,
                 world_size:int, 
             epochs:int,bs:int,lr:float,
@@ -185,6 +190,18 @@ class LLM():
                 nprocs=world_size)
         end=time.time()
         print(f"RUNTIME : {end-start}")
+
+class Llama():
+    def __init__(self,df,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42): # Model name should be BERT,GPT or LLAMA
+        self.df=df # Data we want to fine tune the model with. 
+        self.checkpoint='meta-llama/Llama-2-7b-hf' # model checkpoint
+        self.X=df[input_col] # Raw input data
+        self.y=df[output_col] # Raw output data
+        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset(X=self.X,
+                                                                    y=self.y,test_size=test_size,
+                                                                   val_size=val_size,checkpoint=self.checkpoint,
+                                                                    seed=seed,max_length=max_length)
 
     def run_LLAMA(self,epochs:int,bs:int,lr:float,save_every:int):
 
