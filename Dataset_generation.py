@@ -9,6 +9,19 @@ import os
 
 # checkpoint='meta-llama/Llama-2-7b-hf'
 
+def load_Sentiment140_data(encoding:str,num_data:int):
+    file='./training.1600000.processed.noemoticon.csv'
+    df=pd.read_csv(file,encoding=encoding)
+    # This dataset consists of six columns without any column labels.
+    columns=['labels','index','date','queries','user','tweets']
+    df.columns=columns 
+    df=df[['tweets','labels']]
+    df['labels']=df['labels'].replace(4,1) # Positive is 1, Negative is 0.
+    df1=df[:num_data]
+    df2=df[-num_data:]
+    df=pd.concat([df1,df2])
+    return df
+
 def load_preprocessed_nuclear_data():
     file='Tweets_7tools_preprocessed_dropbox.csv'
     df=pd.read_csv(file)

@@ -12,9 +12,6 @@ from torch.distributed import destroy_process_group
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def run_BERT(df,input_col:str,label_col:str,epochs:int,bs:int,lr:float,save_every:int):
-    # Load the raw data contains text and label 
-    # df=load_preprocessed_nuclear_data()
-
     # Specify the model we want to implement. 
     checkpoint='bert-base-uncased'
 
@@ -56,9 +53,6 @@ def run_BERT(df,input_col:str,label_col:str,epochs:int,bs:int,lr:float,save_ever
 
 def run_GPT(df,input_col:str,label_col:str,
             epochs:int,bs:int,lr:float,save_every:int):
-    # Load the raw data contains text and label 
-    # df=load_preprocessed_nuclear_data()
-
     # Specify the model we want to implement. 
     checkpoint='gpt2'
 
