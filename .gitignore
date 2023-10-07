@@ -1,0 +1,17 @@
+# Ignoring files 
+test.py
+nohup.out
+Naman_Data_Mining.ipynb
+notebook.ipynb
+LLM_Engine_rev2.py
+Tweets_7tools_preprocessed_dropbox.csv
+
+# Directories
+Results/
+trained_BERT/
+trained_BERT_DDP/
+trained_GPT2/
+trained_Llama/
+Archieved/
+__pycache__/
+

@@ -48,15 +48,16 @@ def data_analyzer(df,output_col:str,savedir:str,filename:str):
     plt.savefig(savedir+'/'+filename)
 
 # Conversion from text to tensor.
-def prepare_dataset(X,y,checkpoint,max_length=128):
+def prepare_dataset(X,y,checkpoint,max_length=128,
+                    test_size=0.2,val_size=0.1,seed=42):
 
     # Import the tokenizer for the argument 
     tokenizer=AutoTokenizer.from_pretrained(checkpoint)
     tokenizer.pad_token=tokenizer.eos_token
     # tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # This is for BERT
 
-    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
-    X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=0.1)
+    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
+    X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
     # Prepare for input_ids
     # Make a list type object
     X_train_text=[str(text) for text in X_train]
@@ -114,14 +115,15 @@ def prepare_dataset(X,y,checkpoint,max_length=128):
     return train_dataset,test_dataset,val_dataset
 
 # Conversion from text to tensor.
-def prepare_dataset_BERT(X,y,checkpoint,max_length=128):
+def prepare_dataset_BERT(X,y,checkpoint,max_length=128,
+                         test_size=0.2,val_size=0.1,seed=42):
 
     # Import the tokenizer for the argument 
     tokenizer=AutoTokenizer.from_pretrained(checkpoint)
     tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # This is for BERT
 
-    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
-    X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=0.1)
+    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
+    X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
     # Prepare for input_ids
     # Make a list type object
     X_train_text=[str(text) for text in X_train]
