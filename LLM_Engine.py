@@ -11,16 +11,16 @@ from torch.distributed import destroy_process_group
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-def run_BERT(epochs:int,bs:int,lr:float,save_every:int):
+def run_BERT(df,input_col:str,label_col:str,epochs:int,bs:int,lr:float,save_every:int):
     # Load the raw data contains text and label 
-    df=load_preprocessed_nuclear_data()
+    # df=load_preprocessed_nuclear_data()
 
     # Specify the model we want to implement. 
     checkpoint='bert-base-uncased'
 
     # Define a function that prepare for the dataset.
-    train_dataset,test_dataset,val_dataset=prepare_dataset_BERT(X=df['tweets'],
-                                            y=df['FinalScore'],
+    train_dataset,test_dataset,val_dataset=prepare_dataset_BERT(X=df[input_col],
+                                            y=df[label_col],
                                             checkpoint=checkpoint,
                                             max_length=128)
 
@@ -54,16 +54,17 @@ def run_BERT(epochs:int,bs:int,lr:float,save_every:int):
     end=time.time()
     print(f'RUNTIME : {end-start}')
 
-def run_GPT(epochs:int,bs:int,lr:float,save_every:int):
+def run_GPT(df,input_col:str,label_col:str,
+            epochs:int,bs:int,lr:float,save_every:int):
     # Load the raw data contains text and label 
-    df=load_preprocessed_nuclear_data()
+    # df=load_preprocessed_nuclear_data()
 
     # Specify the model we want to implement. 
     checkpoint='gpt2'
 
     # Define a function that prepare for the dataset.
-    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df['tweets'],
-                                            y=df['FinalScore'],
+    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df[input_col],
+                                            y=df[label_col],
                                             checkpoint=checkpoint,
                                             max_length=128)
 
@@ -97,19 +98,18 @@ def run_GPT(epochs:int,bs:int,lr:float,save_every:int):
     end=time.time()
     print(f'RUNTIME : {end-start}')
 
-def BERT_DDP(rank:int,world_size:int,
+def BERT_DDP(rank:int,df,
+             input_col:str,label_col:str,
+             world_size:int,
                   epochs:int,
                   bs:int,lr:int
                   ,save_every:int):
-    # Load the raw data contains text and label 
-    df=load_preprocessed_nuclear_data()
-
     # Specify the model we want to implement. 
     checkpoint='bert-base-uncased'
 
     # Define a function that prepare for the dataset.
-    train_dataset,test_dataset,val_dataset=prepare_dataset_BERT(X=df['tweets'],
-                                            y=df['FinalScore'],
+    train_dataset,test_dataset,val_dataset=prepare_dataset_BERT(X=df[input_col],
+                                            y=df[label_col],
                                             checkpoint=checkpoint,
                                             max_length=128)
 
@@ -144,28 +144,29 @@ def BERT_DDP(rank:int,world_size:int,
 
     destroy_process_group()
 
-def run_BERT_DDP(world_size:int,
+def run_BERT_DDP(df,input_col:str,label_col:str,
+                 world_size:int,
                   epochs:int,
                   bs:int,lr:int
                   ,save_every:int):
     start=time.time()
-    mp.spawn(BERT_DDP,args=(world_size,epochs,bs,lr,save_every),
+    mp.spawn(BERT_DDP,args=(df,input_col,label_col,world_size,epochs,bs,lr,save_every),
              nprocs=world_size)
     end=time.time()
     print(f"RUNTIME : {end-start}")
 
-def GPT_DDP(rank:int,world_size:int, 
+def GPT_DDP(rank:int,df,
+            input_col:str,label_col:str,
+            world_size:int, 
          epochs:int,bs:int,lr:float,
          save_every:int):
-    # Load the raw data contains text and label 
-    df=load_preprocessed_nuclear_data()
 
     # Specify the model we want to implement. 
     checkpoint='gpt2'
 
     # Define a function that prepare for the dataset.
-    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df['tweets'],
-                                            y=df['FinalScore'],
+    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df[input_col],
+                                            y=df[label_col],
                                             checkpoint=checkpoint,
                                             max_length=128)
 
@@ -200,25 +201,23 @@ def GPT_DDP(rank:int,world_size:int,
     
     destroy_process_group()
 
-def run_GPT_DDP(world_size:int, 
+def run_GPT_DDP(df,input_col:str,label_col:str,
+                world_size:int, 
          epochs:int,bs:int,lr:float,
          save_every:int):
     start=time.time()
-    mp.spawn(GPT_DDP,args=(world_size,epochs,bs,lr,save_every),
+    mp.spawn(GPT_DDP,args=(df,input_col,label_col,world_size,epochs,bs,lr,save_every),
              nprocs=world_size)
     end=time.time()
     print(f"RUNTIME : {end-start}")
 
-def run_LLAMA(epochs:int,bs:int,lr:float,save_every:int):
-    # __Import the dataset using dataset generation package__
-    df=load_preprocessed_nuclear_data()
-
+def run_LLAMA(df,input_col:str,label_col:str,
+        epochs:int,bs:int,lr:float,save_every:int):
     checkpoint='meta-llama/Llama-2-7b-hf'
-
     # Prepare tensor dataset.
     # Note that this dataset will contain input_id,attention_mask,label
-    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df['tweets'],
-                                               y=df['FinalScore'],
+    train_dataset,test_dataset,val_dataset=prepare_dataset(X=df[input_col],
+                                               y=df[label_col],
                                             checkpoint=checkpoint,
                                             max_length=128)
 
