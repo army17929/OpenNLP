@@ -28,7 +28,7 @@ class ClassicalML():
     def __init__(self,df,input_col:str,
                  output_col:str,
                  seed:int,test_size=0.2):
-        self.X=vectorize_data(df=df,text_column=input_col) # Input data
+        self.X=self.vectorize_data(df=df,text_column=input_col) # Input data
         self.y=df[output_col] # Output data
         self.X_train,self.X_test,self.y_train,self.y_test=train_test_split(
             self.X,self.y,test_size=test_size,random_state=seed)
@@ -55,7 +55,7 @@ class ClassicalML():
         #:param text_column: (str) name of the column that contains text
         #"""
         # Preprocess the data
-        df[text_column] = df[text_column].apply(preprocess_text)
+        df[text_column] = df[text_column].apply(self.preprocess_text)
         # Define input and output
         X = df[text_column]
         # Vectorization
@@ -166,3 +166,9 @@ class ClassicalML():
         metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
                     model_name='LinearSVC')
+
+if __name__=="__main__":
+    ml=ClassicalML(df=load_preprocessed_nuclear_data(),
+                   input_col='tweets',output_col='FinalScore',
+                   seed=42,test_size=0.2)
+    ml.run_AdaBoost(n_estimators=200)
