@@ -169,3 +169,39 @@ class ClassicalML():
         metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
                     model_name='LinearSVC')
+
+def preprocess_text(text):
+    #This function pre-processes the raw text.
+    #:params text: (str) string you want to process
+    # Conversion to the lowercase.
+    text = text.lower()
+    # Remove all the special characters.
+    text = re.sub(r'[^\w\s]', '', text)
+    # Tokenize
+    tokens = word_tokenize(text)
+    # Remove all the stop words
+    stop_words = set(stopwords.words('english'))
+    filtered_tokens = [word for word in tokens if word not in stop_words]
+    # Stemmize and Lemmatize
+    stemmer = PorterStemmer()
+    stemmed_tokens = [stemmer.stem(token) for token in filtered_tokens]
+    return ' '.join(stemmed_tokens)
+
+def vectorize_data(df,text_column:str):
+    #"""
+    #This function vectorizes texts using TfidVectorizer.
+
+    #:param df: (DataFrame) dataframe for model training 
+    #:param text_column: (str) name of the column that contains text
+    #"""
+    # Preprocess the data
+    df[text_column] = df[text_column].apply(preprocess_text)
+
+    # Define input and output
+    X = df[text_column]
+
+    # Vectorization
+    vectorizer = TfidfVectorizer()
+    X_vectorized = vectorizer.fit_transform(X)
+        
+    return X_vectorized
