@@ -11,14 +11,10 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
 import time
-import pandas as pd
 
 def preprocess_text(text):
-    #"""
     #This function pre-processes the raw text.
-
     #:params text: (str) string you want to process
-    #"""
     # Conversion to the lowercase.
     text = text.lower()
     # Remove all the special characters.
