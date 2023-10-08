@@ -11,10 +11,10 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import init_process_group
 import bitsandbytes as bnb
 import os
-from sklearn.metrics import classification_report,confusion_matrix,ConfusionMatrixDisplay
+from sklearn.metrics import classification_report,confusion_matrix
 
 class TrainerSingle:
     """

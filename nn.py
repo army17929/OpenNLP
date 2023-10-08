@@ -2,19 +2,15 @@ import pandas as pd
 import numpy as np
 from sklearn import neural_network 
 from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
 from keras.preprocessing.text import Tokenizer
 from keras_preprocessing.sequence import pad_sequences
 from keras.models import Sequential
 from keras.layers import Embedding,LSTM,Dense
 from keras.utils import to_categorical
-import os 
-from classical_ml import ClassicalML
-from Trainer import metrics_generator
+from ml import ClassicalML
+from trainer import metrics_generator, PlotTraining
 import matplotlib.pyplot as plt
-import tensorflow as tf
 import time
-from Trainer import PlotTraining
 
 class _LSTM():
     """

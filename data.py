@@ -1,6 +1,6 @@
 from sklearn.model_selection import train_test_split
 import pandas as pd
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer
 import torch
 import torch.nn 
 from torch.utils.data import TensorDataset

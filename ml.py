@@ -8,8 +8,8 @@ import re
 import nltk 
 nltk.download('punkt')
 nltk.download('stopwords')
-from Dataset_generation import load_preprocessed_nuclear_data
-from Trainer import metrics_generator
+from data import load_preprocessed_nuclear_data
+from trainer import metrics_generator
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
