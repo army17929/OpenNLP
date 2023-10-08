@@ -5,49 +5,15 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier,
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB 
 import re
+import nltk 
+nltk.download('punkt')
+nltk.download('stopwords')
 from Dataset_generation import load_preprocessed_nuclear_data
 from Trainer import metrics_generator
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
 import time
-
-def preprocess_text(text):
-    #This function pre-processes the raw text.
-    #:params text: (str) string you want to process
-    # Conversion to the lowercase.
-    text = text.lower()
-    # Remove all the special characters.
-    text = re.sub(r'[^\w\s]', '', text)
-    # Tokenize
-    tokens = word_tokenize(text)
-    # Remove all the stop words
-    stop_words = set(stopwords.words('english'))
-    filtered_tokens = [word for word in tokens if word not in stop_words]
-    # Stemmize and Lemmatize
-    stemmer = PorterStemmer()
-    stemmed_tokens = [stemmer.stem(token) for token in filtered_tokens]
-    return ' '.join(stemmed_tokens)
-
-def vectorize_data(df,text_column:str):
-    #"""
-    #This function vectorizes texts using TfidVectorizer.
-
-    #:param df: (DataFrame) dataframe for model training 
-    #:param text_column: (str) name of the column that contains text
-    #"""
-    # Preprocess the data
-    df[text_column] = df[text_column].apply(preprocess_text)
-
-    # Define input and output
-    X = df[text_column]
-
-    # Vectorization
-    vectorizer = TfidfVectorizer()
-    X_vectorized = vectorizer.fit_transform(X)
-        
-    return X_vectorized
-
 
 class ClassicalML():
     """
@@ -66,6 +32,37 @@ class ClassicalML():
         self.y=df[output_col] # Output data
         self.X_train,self.X_test,self.y_train,self.y_test=train_test_split(
             self.X,self.y,test_size=test_size,random_state=seed)
+        
+    def preprocess_text(self,text):
+        #This function pre-processes the raw text.
+        #:params text: (str) string you want to process
+        text = text.lower()
+        text = re.sub(r'[^\w\s]', '', text)
+        tokens = word_tokenize(text)
+        # Remove stopwords
+        stop_words = set(stopwords.words('english'))
+        filtered_tokens = [word for word in tokens if word not in stop_words]
+        # Stemmize and Lemmatize
+        stemmer = PorterStemmer()
+        stemmed_tokens = [stemmer.stem(token) for token in filtered_tokens]
+        return ' '.join(stemmed_tokens)
+
+    def vectorize_data(self,df,text_column:str):
+        #"""
+        #This function vectorizes texts using TfidVectorizer.
+
+        #:param df: (DataFrame) dataframe for model training 
+        #:param text_column: (str) name of the column that contains text
+        #"""
+        # Preprocess the data
+        df[text_column] = df[text_column].apply(preprocess_text)
+        # Define input and output
+        X = df[text_column]
+        # Vectorization
+        vectorizer = TfidfVectorizer()
+        X_vectorized = vectorizer.fit_transform(X)
+
+        return X_vectorized
 
     def run_RandomForest(self,n_estimators:int):
         #"""
@@ -169,39 +166,3 @@ class ClassicalML():
         metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
                     model_name='LinearSVC')
-
-def preprocess_text(text):
-    #This function pre-processes the raw text.
-    #:params text: (str) string you want to process
-    # Conversion to the lowercase.
-    text = text.lower()
-    # Remove all the special characters.
-    text = re.sub(r'[^\w\s]', '', text)
-    # Tokenize
-    tokens = word_tokenize(text)
-    # Remove all the stop words
-    stop_words = set(stopwords.words('english'))
-    filtered_tokens = [word for word in tokens if word not in stop_words]
-    # Stemmize and Lemmatize
-    stemmer = PorterStemmer()
-    stemmed_tokens = [stemmer.stem(token) for token in filtered_tokens]
-    return ' '.join(stemmed_tokens)
-
-def vectorize_data(df,text_column:str):
-    #"""
-    #This function vectorizes texts using TfidVectorizer.
-
-    #:param df: (DataFrame) dataframe for model training 
-    #:param text_column: (str) name of the column that contains text
-    #"""
-    # Preprocess the data
-    df[text_column] = df[text_column].apply(preprocess_text)
-
-    # Define input and output
-    X = df[text_column]
-
-    # Vectorization
-    vectorizer = TfidfVectorizer()
-    X_vectorized = vectorizer.fit_transform(X)
-        
-    return X_vectorized
