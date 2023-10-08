@@ -166,9 +166,3 @@ class ClassicalML():
         metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
                     model_name='LinearSVC')
-
-if __name__=="__main__":
-    ml=ClassicalML(df=load_preprocessed_nuclear_data(),
-                   input_col='tweets',output_col='FinalScore',
-                   seed=42,test_size=0.2)
-    ml.run_AdaBoost(n_estimators=200)
