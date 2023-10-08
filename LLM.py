@@ -1,7 +1,7 @@
-from Trainer import ddp_setup,dataloader_ddp,TrainerDDP
-from Trainer import prepare_const,dataloader_single,TrainerSingle
-from ModelCustomize import load_model,create_bnb_config,GPTCustomClassificationModel, CustomClassificationModel
-from Dataset_generation import prepare_dataset,prepare_dataset_BERT,load_preprocessed_nuclear_data
+from Trainer import TrainerDDP,ddp_setup
+from Trainer import prepare_const,TrainerSingle
+from ModelCustomize import CustomClassificationModel, peft, PEFTClassificationModel
+from Dataset_generation import data_processor,load_preprocessed_nuclear_data
 from transformers import AutoModel
 import os 
 import time
@@ -9,6 +9,7 @@ from pathlib import Path
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group
 from sklearn.model_selection import train_test_split
+import pandas as pd
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -24,17 +25,18 @@ class BERT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,df,input_col:str,output_col:str,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42): 
-        self.df=df 
+    def __init__(self,data_path:str,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): 
+        D=data_processor(path=data_path,input_col=input_col,
+                            output_col=output_col,encoding=encoding)
+        self.df=pd.read_csv(data_path,encoding=encoding)
+        self.df=D.label_converter()
         self.checkpoint='bert-base-uncased' # model checkpoint
-        self.X=df[input_col] 
-        self.y=df[output_col] 
-        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset_BERT(X=self.X,
-                                                                    y=self.y,test_size=test_size,
-                                                                   val_size=val_size,checkpoint=self.checkpoint,
-                                                                    seed=seed,max_length=max_length)
-    
+        self.X=self.df[input_col] 
+        self.y=self.df[output_col] 
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset_BERT(df=self.df,
+                                                                                     checkpoint=self.checkpoint)
+        
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
         # This function fine tunes BERT on a single GPU.
@@ -46,26 +48,19 @@ class BERT():
         #    Note : Final model will be always saved.
         #:params gpu_id: (int) index of device you want to use. 
         #"""
-        model=CustomClassificationModel(
-            checkpoint=AutoModel.from_pretrained(self.checkpoint),
-                                        num_class=3)
-         
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
 
         # Save learning hyperparamters in a dictionary.
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name='BERT')
 
-        train_dataloader,test_dataloader,val_dataloader=dataloader_single(trainset=self.train_dataset,
-                                                        testset=self.test_dataset,
-                                                        valset=self.val_dataset,
-                                                        bs=const['batch_size'])
         # Create an instance from TrianerSingle class
         BERTTrainerSingle=TrainerSingle(gpu_id=gpu_id,
                                         model=model,
-                                        trainloader=train_dataloader,
-                                        testloader=test_dataloader,
-                                        valloader=val_dataloader,
+                                        trainset=self.train_dataset,
+                                        testset=self.test_dataset,
+                                        valset=self.val_dataset,
                                         const=const)
 
         start=time.time()
@@ -89,27 +84,20 @@ class BERT():
         #"""
 
         # Prepare the model for classification problem 
-        model=CustomClassificationModel(
-            checkpoint=AutoModel.from_pretrained(self.checkpoint),
-                                        num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name='BERT_DDP')
-        ddp_setup(rank,world_size)
-        # Load the data on the dataloader
-        train_dataloader,test_dataloader,val_dataloader,sampler_train,sampler_val=dataloader_ddp(trainset=self.train_dataset,
-                                                        testset=self.test_dataset,
-                                                        valset=self.val_dataset,
-                                                        bs=const['batch_size'])
+        
+        ddp_setup(rank=rank,world_size=world_size)
+
         # Create an instance from the Trianer single class
         BERTTrainerDDP=TrainerDDP(gpu_id=rank,
                                     model=model,
-                                    trainloader=train_dataloader,
-                                    testloader=test_dataloader,
-                                    valloader=val_dataloader,
-                                    sampler_train=sampler_train,
-                                    sampler_val=sampler_val,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
                                     const=const)
         
         BERTTrainerDDP.train(max_epochs=const['total_epochs'])
@@ -129,7 +117,7 @@ class BERT():
         :param epochs: (int) number of total epochs
         :param bs: (int) batch size
         :param lr: (float) learning rate
-        :param save_every: (int) Model will be saved for every {save_every} epochs.
+        :param save_every: (int) Model will be saved for every ``save_every`` epochs.
         """
 
         # Prepare the model for classification problem 
@@ -151,17 +139,18 @@ class GPT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,df,input_col:str,output_col:str,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42): # Model name should be BERT,GPT or LLAMA
-        self.df=df # Data we want to fine tune the model with. 
-        self.checkpoint='gpt2' # model checkpoint
-        self.X=df[input_col] # Raw input data
-        self.y=df[output_col] # Raw output data
-        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset(X=self.X,
-                                                                    y=self.y,test_size=test_size,
-                                                                   val_size=val_size,checkpoint=self.checkpoint,
-                                                                    seed=seed,max_length=max_length)
+    def __init__(self,data_path:str,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         
+        D=data_processor(path=data_path,input_col=input_col,
+                        output_col=output_col,encoding=encoding)
+        self.df=pd.read_csv(data_path,encoding=encoding)
+        self.df=D.label_converter()
+        self.checkpoint='gpt2' # model checkpoint
+        self.X=self.df[input_col] 
+        self.y=self.df[output_col] 
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,
+                                                                                     checkpoint=self.checkpoint)
     def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
         # This function fine tunes GPT2 on a single GPU.
@@ -174,23 +163,17 @@ class GPT():
         #:params gpu_id: (int) index of device you want to use. 
         #"""
 
-        model=GPTCustomClassificationModel(
-            checkpoint=AutoModel.from_pretrained(self.checkpoint),
-                                        num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
          
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name='GPT2')
 
-        train_dataloader,test_dataloader,val_dataloader=dataloader_single(trainset=self.train_dataset,
-                                                        testset=self.test_dataset,
-                                                        valset=self.val_dataset,
-                                                        bs=const['batch_size'])
         GPTTrainerSingle=TrainerSingle(gpu_id=gpu_id,
                                         model=model,
-                                        trainloader=train_dataloader,
-                                        testloader=test_dataloader,
-                                        valloader=val_dataloader,
+                                        trainset=self.train_dataset,
+                                        testset=self.test_dataset,
+                                        valset=self.val_dataset,
                                         const=const)
 
         start=time.time()
@@ -213,9 +196,7 @@ class GPT():
         #:param save_every: (int) Model will be saved for every {save_every} epochs.
         #"""
 
-        model=GPTCustomClassificationModel(
-            checkpoint=AutoModel.from_pretrained(self.checkpoint),
-                                        num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
          
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
@@ -224,18 +205,11 @@ class GPT():
         
         ddp_setup(rank=rank,world_size=world_size)
 
-        train_dataloader,test_dataloader,val_dataloader,sampler_train,sampler_val=dataloader_ddp(trainset=self.train_dataset,
-                                                        testset=self.test_dataset,
-                                                        valset=self.val_dataset,
-                                                        bs=const['batch_size'])
-
         GPTTrainerDDP=TrainerDDP(gpu_id=rank,
                                         model=model,
-                                        trainloader=train_dataloader,
-                                        testloader=test_dataloader,
-                                        valloader=val_dataloader,
-                                        sampler_val=sampler_val,
-                                        sampler_train=sampler_train,
+                                        trainset=self.train_dataset,
+                                        testset=self.test_dataset,
+                                        valset=self.val_dataset,
                                         const=const)
 
         GPTTrainerDDP.train(max_epochs=const['total_epochs'])
@@ -274,16 +248,17 @@ class Llama():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,df,input_col:str,output_col:str,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42): # Model name should be BERT,GPT or LLAMA
-        self.df=df # Data we want to fine tune the model with. 
+    def __init__(self,data_path:str,input_col:str,output_col:str,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
+
+        D=data_processor(path=data_path,input_col=input_col,
+                         output_col=output_col,encoding=encoding)
+        self.df=pd.read_csv(data_path,encoding=encoding) # Data we want to fine tune the model with. 
+        self.df=D.label_converter()
         self.checkpoint='meta-llama/Llama-2-7b-hf' # model checkpoint
-        self.X=df[input_col] # Raw input data
-        self.y=df[output_col] # Raw output data
-        self.train_dataset,self.test_dataset,self.val_dataset=prepare_dataset(X=self.X,
-                                                                    y=self.y,test_size=test_size,
-                                                                   val_size=val_size,checkpoint=self.checkpoint,
-                                                                    seed=seed,max_length=max_length)
+        self.X=self.df[input_col] # Raw input data
+        self.y=self.df[output_col] # Raw output data
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,checkpoint=self.checkpoint)
 
     def run_LLAMA(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
@@ -296,25 +271,23 @@ class Llama():
         #    # Note : Final model will be always saved.
         #:params gpu_id: (int) index of device you want to use. 
         #"""
+        PEFT=peft(checkpoint=self.checkpoint) # Create an instance
+        model=PEFT.model # Load the quantized model
+        tokenizer=PEFT.tokenizer # Load the tokenizer
+        
+        model=PEFTClassificationModel(model=model,num_class=3)
+        print(model)
 
-        # Create a configuration that can quantize the model 
-        bnb_config=create_bnb_config()
-        model,tokenizer=load_model(gpu_id=gpu_id,checkpoint=self.checkpoint,bnb_config=bnb_config)
-        model=CustomClassificationModel(checkpoint=model,num_class=3)
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name='Llama')
-
-        trainloader,testloader,valloader=dataloader_single(trainset=self.train_dataset,
-                                                testset=self.test_dataset,
-                                                valset=self.val_dataset,
-                                                bs=const['batch_size'])
         
         trainer=TrainerSingle(gpu_id=gpu_id,model=model,
-                            trainloader=trainloader,
-                            testloader=testloader,
-                            valloader=valloader,
+                            trainset=self.train_dataset,
+                            testset=self.test_dataset,
+                            valset=self.val_dataset,
                             const=const)
+        
 
         start=time.time()
         trainer.train(const['total_epochs'])
