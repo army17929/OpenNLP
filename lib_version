@@ -1,0 +1,9 @@
+pandas==2.1.1
+stanza==1.5.1
+tweetnlp==0.4.4
+textblob==0.17.1
+vaderSentiment==3.3.2
+transformers==4.21.2
+pysentiment2==0.1.1
+argparse==1.1
+statistics==1.0.3.5
