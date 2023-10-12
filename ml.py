@@ -6,8 +6,8 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB 
 import re
 import nltk 
-nltk.download('punkt')
-nltk.download('stopwords')
+nltk.download('punkt',quiet=True)
+nltk.download('stopwords',quiet=True)
 from data import load_preprocessed_nuclear_data
 from trainer import metrics_generator
 from nltk.corpus import stopwords

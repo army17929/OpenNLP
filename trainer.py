@@ -30,7 +30,7 @@ class TrainerSingle:
     def __init__(self,gpu_id:int,model:nn.Module,
                  trainset:Dataset,
                  testset:Dataset,
-                 valset:Dataset,const):
+                 valset:Dataset,const,world_size=1):
         self.gpu_id=gpu_id # Current working thread
         self.const=const # Learning parameters 
         self.batch_size=self.const['batch_size']
@@ -58,6 +58,8 @@ class TrainerSingle:
         self.train_loss_array=torch.zeros(self.const['total_epochs'])
         self.val_loss_array=torch.zeros(self.const['total_epochs'])
         self.trainloader,self.testloader,self.valloader=self.dataloader_single()
+        self.best_model_path=''
+        self.world_size=1
     
     def dataloader_single(self)->Tuple[DataLoader,DataLoader,DataLoader]:
         #"""
@@ -83,6 +85,7 @@ class TrainerSingle:
     
     def _run_epoch(self,epoch:int):
         # Running each epoch
+        self.model.train()
         loss=0.0
         val_loss=0.0
         self.train_acc.reset()
@@ -98,6 +101,7 @@ class TrainerSingle:
         self.train_loss_array[epoch]=loss/len(self.trainloader)
         
         # Run on the validation set
+        self.model.eval()
         self.val_acc.reset()
         for input,mask,tgt in self.valloader:
             input=input.to(self.gpu_id)
@@ -143,19 +147,19 @@ class TrainerSingle:
             plt.title(f"Train & Val Acc -  {self.const['model_name']}")
             plt.legend()
             plt.grid()
-            save_dir=f"./Results/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}"
+            save_dir=f"./Results/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             plt.savefig(f"{save_dir}/Trainingplot_{self.const['model_name']}_epoch_{self.const['total_epochs']}_bs_{self.const['batch_size']}.png")
 
-    def _save_checkpoint(self,epoch:int):
-        #"""
-        #Save checkpoint function 
-        #This function will save the model during the training. 
-        #You can load the model from the checkpoint later.
-        #"""
+    def _save_checkpoint(self,epoch:int,model_name:str):
+        """
+        Save checkpoint function 
+        This function will save the model during the training. 
+        You can load the model from the checkpoint later.
+        """
         checkpoint=self.model.state_dict()
-        model_path=self.const["trained_models"]/f"Nuclear_epoch{epoch}.pt"
+        model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
         torch.save(checkpoint,model_path)
     
     def train(self,max_epochs:int):
@@ -163,13 +167,23 @@ class TrainerSingle:
         self.model.train()
         for epoch in range(max_epochs):
             self._run_epoch(epoch)
+            if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
+                """
+                If the model's performance is improved than the previous epoch, save it
+                """
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch % self.const['save_every']==0:
-                self._save_checkpoint(epoch)
-        self._save_checkpoint(max_epochs-1) # save the last epoch
-    
-    def test(self,final_model_path:str):
+                self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+        
+        self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
+        #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
+        print(self.val_acc_array)
+        self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
+        
+    def test(self):
         # Model evaluation function
-        self.model.load_state_dict(torch.load(final_model_path))
+        self.model.load_state_dict(torch.load(self.best_model_path))
+        print(self.best_model_path)
         self.model.eval()
         y_true=[]
         y_pred=[]
@@ -189,7 +203,7 @@ class TrainerSingle:
         print(result)
         # Save the confusion matrix
         metrics_generator(y_true=y_true,y_pred=y_pred,
-                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}",
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_1gpu",
                      model_name=f"{self.const['model_name']}")
 
 class TrainerDDP(TrainerSingle):
@@ -204,7 +218,8 @@ class TrainerDDP(TrainerSingle):
     :param const: (Dict) Dictionary that contains learning hyperparameters 
     """
     def __init__(
-            self, gpu_id:int, model:nn.Module,
+            self, world_size:int, 
+            gpu_id:int, model:nn.Module,
             trainset:Dataset,testset:Dataset,
             valset:Dataset, 
             const
@@ -216,6 +231,8 @@ class TrainerDDP(TrainerSingle):
         # Wrap the model with DDP
         self.model=DDP(self.model,device_ids=[gpu_id],find_unused_parameters=True)
         self.trainloader,self.testloader,self.valloader,self.sampler_train,self.sampler_val= self.dataloader_ddp()
+        self.best_model_path=''
+        self.world_size=world_size
 
     def dataloader_ddp(self)-> Tuple[DataLoader,DataLoader,DataLoader,DistributedSampler,DistributedSampler]:
         #"""
@@ -235,9 +252,9 @@ class TrainerDDP(TrainerSingle):
                             num_workers=2)
         return trainloader,testloader,valloader,sampler_train,sampler_val
 
-    def _save_checkpoint(self, epoch: int):
+    def _save_checkpoint(self,epoch:int,model_name:str):
         checkpoint=self.model.module.state_dict()
-        model_path=self.const["trained_models"]/f"Nuclear_epoch{epoch}.pt"
+        model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
         torch.save(checkpoint,model_path)
     
     def train(self,max_epochs:int):
@@ -246,17 +263,18 @@ class TrainerDDP(TrainerSingle):
             self.sampler_train.set_epoch(epoch)
             self.sampler_val.set_epoch(epoch)
             self._run_epoch(epoch)
+            if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
-                self._save_checkpoint(epoch)
-        # Save last epoch 
-        self._save_checkpoint(max_epochs-1)
-    
-    def test(self,final_model_path:str):
-        print(final_model_path)
+                self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+        
+        self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
+        #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
+        self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
+
+    def test(self):
         self.model.module.load_state_dict(
-            torch.load(final_model_path,map_location="cpu"),
-            #torch.load('/home/ohwang/LLM_Engine/trained_BERT/Nuclear_epoch4.pt',map_location="cpu"),
-            )
+            torch.load(self.best_model_path,map_location="cpu"))
         self.model.eval()
         y_true=[]
         y_pred=[]
@@ -271,11 +289,12 @@ class TrainerDDP(TrainerSingle):
                 y_pred.extend(pred.tolist())
                 y_true.extend(tgt.tolist())
                 self.test_acc.update(out,tgt)
+
         print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
         result=classification_report(y_true,y_pred)
         print(result)
         metrics_generator(y_true=y_true,y_pred=y_pred,
-                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}",
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
                      model_name=f"{self.const['model_name']}")
 
 def PlotTraining(history,savedir:str,model_name:str):

@@ -50,7 +50,7 @@ class BERT():
         # Save learning hyperparamters in a dictionary.
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
-                            model_name='BERT')
+                            model_name='BERT_1gpu')
 
         # Create an instance from TrianerSingle class
         BERTTrainerSingle=TrainerSingle(gpu_id=gpu_id,
@@ -62,7 +62,7 @@ class BERT():
 
         start=time.time()
         BERTTrainerSingle.train(max_epochs=const['total_epochs'])
-        BERTTrainerSingle.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
+        BERTTrainerSingle.test()
         end=time.time()
         print(f'RUNTIME : {end-start}')
 
@@ -85,12 +85,12 @@ class BERT():
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
-                            model_name='BERT_DDP')
+                            model_name=f'BERT_{world_size}gpus')
         
         ddp_setup(rank=rank,world_size=world_size)
 
         # Create an instance from the Trianer single class
-        BERTTrainerDDP=TrainerDDP(gpu_id=rank,
+        BERTTrainerDDP=TrainerDDP(gpu_id=rank,world_size=world_size,
                                     model=model,
                                     trainset=self.train_dataset,
                                     testset=self.test_dataset,
@@ -98,7 +98,7 @@ class BERT():
                                     const=const)
         
         BERTTrainerDDP.train(max_epochs=const['total_epochs'])
-        BERTTrainerDDP.test(final_model_path=f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt")
+        BERTTrainerDDP.test()
 
         destroy_process_group()
 
@@ -164,7 +164,7 @@ class GPT():
          
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
-                            model_name='GPT2')
+                            model_name='GPT2_1gpu')
 
         GPTTrainerSingle=TrainerSingle(gpu_id=gpu_id,
                                         model=model,
@@ -175,7 +175,7 @@ class GPT():
 
         start=time.time()
         GPTTrainerSingle.train(max_epochs=const['total_epochs'])
-        GPTTrainerSingle.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
+        GPTTrainerSingle.test()
         end=time.time()
         print(f'RUNTIME : {end-start}')
 
@@ -198,11 +198,11 @@ class GPT():
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
-                            model_name='GPT2')
+                            model_name=f'GPT2_{world_size}gpus')
         
         ddp_setup(rank=rank,world_size=world_size)
 
-        GPTTrainerDDP=TrainerDDP(gpu_id=rank,
+        GPTTrainerDDP=TrainerDDP(gpu_id=rank,world_size=world_size,
                                         model=model,
                                         trainset=self.train_dataset,
                                         testset=self.test_dataset,
@@ -210,7 +210,7 @@ class GPT():
                                         const=const)
 
         GPTTrainerDDP.train(max_epochs=const['total_epochs'])
-        GPTTrainerDDP.test(final_model_path=Path(f"./trained_{const['model_name']}/Nuclear_epoch{const['total_epochs']-1}.pt"))
+        GPTTrainerDDP.test()
         
         destroy_process_group()
 
@@ -288,6 +288,6 @@ class Llama():
 
         start=time.time()
         trainer.train(const['total_epochs'])
-        trainer.test(final_model_path=f"./trained_{const['model_name']}/Nuclear_epoch4.pt")
+        trainer.test()
         end=time.time()
         print(f'RUNTIME : {end-start} sec')
