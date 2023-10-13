@@ -150,7 +150,7 @@ class TrainerSingle:
             plt.grid()
             save_dir=f"./Results/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu"
             if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+                os.makedirs(save_dir,exist_ok=True)
             plt.savefig(f"{save_dir}/Trainingplot_{self.const['model_name']}_epoch_{self.const['total_epochs']}_bs_{self.const['batch_size']}.png")
 
     def _save_checkpoint(self,epoch:int,model_name:str):
@@ -326,7 +326,7 @@ def PlotTraining(history,savedir:str,model_name:str):
     plt.ylabel('Acc')
     plt.title(f"Acc - {model_name}")
     if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+        os.makedirs(save_dir,exist_ok=True)
     plt.savefig(f"{save_dir}/Trainingplot_{model_name}")
 
 def prepare_const(num_epochs:int,batch_size:int,
@@ -375,7 +375,7 @@ def metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str):
     plt.title(f"Confusion Matrix of {model_name}")        
     # Save the matrix
     if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+        os.makedirs(save_dir,exist_ok=True)
     save_path=os.path.join(save_dir,f"cm_{model_name}")
     plt.savefig(save_path)
     # Create the classification report 
