@@ -15,6 +15,7 @@ from torch.distributed import init_process_group
 import bitsandbytes as bnb
 import os
 from sklearn.metrics import classification_report,confusion_matrix
+import time
 
 class TrainerSingle:
     """
@@ -165,6 +166,7 @@ class TrainerSingle:
     def train(self,max_epochs:int):
         # Comprehensive training function
         self.model.train()
+        start=time.time()
         for epoch in range(max_epochs):
             self._run_epoch(epoch)
             if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
@@ -174,16 +176,16 @@ class TrainerSingle:
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch % self.const['save_every']==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
-        
+        end=time.time()
+        print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
         self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
-        print(self.val_acc_array)
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         
     def test(self):
         # Model evaluation function
         self.model.load_state_dict(torch.load(self.best_model_path))
-        print(self.best_model_path)
+        print(f"TEST MODEL : {self.best_model_path}")
         self.model.eval()
         y_true=[]
         y_pred=[]
@@ -244,9 +246,7 @@ class TrainerDDP(TrainerSingle):
         trainloader=DataLoader(self.trainset,batch_size=self.const['batch_size'],
                             shuffle=False,sampler=sampler_train,
                             num_workers=2)
-        testloader=DataLoader(self.testset,batch_size=self.const['batch_size'],shuffle=False,
-                            sampler=sampler_val,
-                            num_workers=2)
+        testloader=DataLoader(self.testset,batch_size=self.const['batch_size'])
         valloader=DataLoader(self.valset,batch_size=self.const['batch_size'],
                             shuffle=False,sampler=DistributedSampler(self.valset,shuffle=False),
                             num_workers=2)
@@ -259,6 +259,7 @@ class TrainerDDP(TrainerSingle):
     
     def train(self,max_epochs:int):
         self.model.train()
+        start=time.time()
         for epoch in range(max_epochs):
             self.sampler_train.set_epoch(epoch)
             self.sampler_val.set_epoch(epoch)
@@ -267,7 +268,8 @@ class TrainerDDP(TrainerSingle):
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
-        
+        end=time.time()
+        print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
         self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 

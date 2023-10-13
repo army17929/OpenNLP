@@ -60,11 +60,8 @@ class BERT():
                                         valset=self.val_dataset,
                                         const=const)
 
-        start=time.time()
         BERTTrainerSingle.train(max_epochs=const['total_epochs'])
         BERTTrainerSingle.test()
-        end=time.time()
-        print(f'RUNTIME : {end-start}')
 
     def BERT_DDP(self,rank:int,
                 world_size:int,epochs:int,bs:int,lr:int
@@ -122,7 +119,7 @@ class BERT():
         mp.spawn(self.BERT_DDP,args=(world_size,epochs,bs,lr,save_every),
                 nprocs=world_size)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        print(f"RUNTIME for all processes : {end-start}")
 
 class GPT():
     """
@@ -192,7 +189,6 @@ class GPT():
         #:param lr: (float) learning rate
         #:param save_every: (int) Model will be saved for every {save_every} epochs.
         #"""
-
         model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
          
 
@@ -208,7 +204,7 @@ class GPT():
                                         testset=self.test_dataset,
                                         valset=self.val_dataset,
                                         const=const)
-
+        
         GPTTrainerDDP.train(max_epochs=const['total_epochs'])
         GPTTrainerDDP.test()
         
@@ -231,7 +227,7 @@ class GPT():
         mp.spawn(self.GPT_DDP,args=(world_size,epochs,bs,lr,save_every),
                 nprocs=world_size)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        print(f"RUNTIME for all processes : {end-start}")
 
 class Llama():
     """
@@ -285,9 +281,5 @@ class Llama():
                             valset=self.val_dataset,
                             const=const)
         
-
-        start=time.time()
         trainer.train(const['total_epochs'])
         trainer.test()
-        end=time.time()
-        print(f'RUNTIME : {end-start} sec')
