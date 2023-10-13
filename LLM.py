@@ -22,7 +22,7 @@ class BERT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,
+    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): 
         D=data_processor(path=data_path,input_col=input_col,
                             output_col=output_col,encoding=encoding)
@@ -31,8 +31,9 @@ class BERT():
         self.checkpoint='bert-base-uncased' # model checkpoint
         self.X=self.df[input_col] 
         self.y=self.df[output_col] 
+        self.num_class=num_class
         self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset_BERT(df=self.df,
-                                                                                     checkpoint=self.checkpoint)
+                                                             checkpoint=self.checkpoint)
         
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
@@ -45,7 +46,7 @@ class BERT():
         #    Note : Final model will be always saved.
         #:params gpu_id: (int) index of device you want to use. 
         #"""
-        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
 
         # Save learning hyperparamters in a dictionary.
         const=prepare_const(num_epochs=epochs,batch_size=bs,
@@ -58,6 +59,7 @@ class BERT():
                                         trainset=self.train_dataset,
                                         testset=self.test_dataset,
                                         valset=self.val_dataset,
+                                        num_class=self.num_class,
                                         const=const)
 
         BERTTrainerSingle.train(max_epochs=const['total_epochs'])
@@ -78,7 +80,7 @@ class BERT():
         #"""
 
         # Prepare the model for classification problem 
-        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
@@ -89,6 +91,7 @@ class BERT():
         # Create an instance from the Trianer single class
         BERTTrainerDDP=TrainerDDP(gpu_id=rank,world_size=world_size,
                                     model=model,
+                                    num_class=self.num_class,
                                     trainset=self.train_dataset,
                                     testset=self.test_dataset,
                                     valset=self.val_dataset,
@@ -133,7 +136,7 @@ class GPT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,
+    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         
         D=data_processor(path=data_path,input_col=input_col,
@@ -143,6 +146,7 @@ class GPT():
         self.checkpoint='gpt2' # model checkpoint
         self.X=self.df[input_col] 
         self.y=self.df[output_col] 
+        self.num_class=num_class
         self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,
                                                                                      checkpoint=self.checkpoint)
     def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
@@ -157,7 +161,7 @@ class GPT():
         #:params gpu_id: (int) index of device you want to use. 
         #"""
 
-        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
          
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
@@ -168,13 +172,11 @@ class GPT():
                                         trainset=self.train_dataset,
                                         testset=self.test_dataset,
                                         valset=self.val_dataset,
+                                        num_class=self.num_class,
                                         const=const)
 
-        start=time.time()
         GPTTrainerSingle.train(max_epochs=const['total_epochs'])
         GPTTrainerSingle.test()
-        end=time.time()
-        print(f'RUNTIME : {end-start}')
 
     def GPT_DDP(self,rank:int,world_size:int, 
             epochs:int,bs:int,lr:float,
@@ -189,7 +191,7 @@ class GPT():
         #:param lr: (float) learning rate
         #:param save_every: (int) Model will be saved for every {save_every} epochs.
         #"""
-        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=3)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
          
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
@@ -203,6 +205,7 @@ class GPT():
                                         trainset=self.train_dataset,
                                         testset=self.test_dataset,
                                         valset=self.val_dataset,
+                                        num_class=self.num_class,
                                         const=const)
         
         GPTTrainerDDP.train(max_epochs=const['total_epochs'])
@@ -241,7 +244,7 @@ class Llama():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,
+    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
 
         D=data_processor(path=data_path,input_col=input_col,
@@ -251,6 +254,7 @@ class Llama():
         self.checkpoint='meta-llama/Llama-2-7b-hf' # model checkpoint
         self.X=self.df[input_col] # Raw input data
         self.y=self.df[output_col] # Raw output data
+        self.num_class=num_class
         self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,checkpoint=self.checkpoint)
 
     def run_LLAMA(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
@@ -268,7 +272,7 @@ class Llama():
         model=PEFT.model # Load the quantized model
         tokenizer=PEFT.tokenizer # Load the tokenizer
         
-        model=PEFTClassificationModel(model=model,num_class=3)
+        model=PEFTClassificationModel(model=model,num_class=self.num_class)
         print(model)
 
         const=prepare_const(num_epochs=epochs,batch_size=bs,
@@ -279,6 +283,7 @@ class Llama():
                             trainset=self.train_dataset,
                             testset=self.test_dataset,
                             valset=self.val_dataset,
+                            num_class=self.num_class,
                             const=const)
         
         trainer.train(const['total_epochs'])

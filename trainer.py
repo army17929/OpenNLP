@@ -31,11 +31,13 @@ class TrainerSingle:
     def __init__(self,gpu_id:int,model:nn.Module,
                  trainset:Dataset,
                  testset:Dataset,
-                 valset:Dataset,const,world_size=1):
+                 valset:Dataset,const,
+                 num_class:int,world_size=1):
         self.gpu_id=gpu_id # Current working thread
         self.const=const # Learning parameters 
         self.batch_size=self.const['batch_size']
         self.model=model.to(self.gpu_id) # Send the model to GPU
+        self.num_class=num_class
         self.trainset=trainset 
         self.testset=testset
         self.valset=valset
@@ -45,15 +47,28 @@ class TrainerSingle:
         self.lr_scheduler=optim.lr_scheduler.StepLR(
             self.optimizer,self.const['lr_step_size']
         )
-        self.train_acc=torchmetrics.Accuracy(
-            task="multiclass",num_classes=3,average="micro"
-        ).to(self.gpu_id)
-        self.val_acc=torchmetrics.Accuracy(
-        task="multiclass",num_classes=3,average="micro"
-        ).to(self.gpu_id)
-        self.test_acc=torchmetrics.Accuracy(
-            task="multiclass",num_classes=3,average="micro"
-        ).to(self.gpu_id)
+        # binary classification
+        if self.num_class==2:
+            self.train_acc=torchmetrics.Accuracy(
+                task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
+            self.val_acc=torchmetrics.Accuracy(
+            task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
+            self.test_acc=torchmetrics.Accuracy(
+                task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
+        # Multiclass classification
+        else:
+            self.train_acc=torchmetrics.Accuracy(
+                task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
+            self.val_acc=torchmetrics.Accuracy(
+            task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
+            self.test_acc=torchmetrics.Accuracy(
+                task="multiclass",num_classes=self.num_class,average="micro"
+            ).to(self.gpu_id)
         self.train_acc_array=torch.zeros(self.const['total_epochs'])
         self.val_acc_array=torch.zeros(self.const['total_epochs'])
         self.train_loss_array=torch.zeros(self.const['total_epochs'])
@@ -170,6 +185,9 @@ class TrainerSingle:
         start=time.time()
         for epoch in range(max_epochs):
             self._run_epoch(epoch)
+            print(self.val_acc_array)
+            if epoch==0: # First epoch, save it anyways.
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
                 """
                 If the model's performance is improved than the previous epoch, save it
@@ -180,7 +198,7 @@ class TrainerSingle:
         end=time.time()
         runtime=end-start
         print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
-        self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
+        #self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         self.runtime=runtime
@@ -207,7 +225,12 @@ class TrainerSingle:
         result=classification_report(y_true,y_pred)
         print(result)
         # Save the confusion matrix
-        metrics_generator(y_true=y_true,y_pred=y_pred,
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_1gpu",
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
                      save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_1gpu",
                      model_name=f"{self.const['model_name']}",runtime=self.runtime)
 
@@ -226,17 +249,18 @@ class TrainerDDP(TrainerSingle):
             self, world_size:int, 
             gpu_id:int, model:nn.Module,
             trainset:Dataset,testset:Dataset,
-            valset:Dataset, 
+            valset:Dataset, num_class:int,
             const
     )->None:
         super().__init__(gpu_id,model,trainset,
-                         testset,valset,const)
+                         testset,valset,const,num_class)
         torch.cuda.set_device(gpu_id)
         torch.cuda.empty_cache()
         # Wrap the model with DDP
         self.model=DDP(self.model,device_ids=[gpu_id],find_unused_parameters=True)
         self.trainloader,self.testloader,self.valloader,self.sampler_train,self.sampler_val= self.dataloader_ddp()
         self.best_model_path=''
+        self.num_class=num_class
         self.world_size=world_size
 
     def dataloader_ddp(self)-> Tuple[DataLoader,DataLoader,DataLoader,DistributedSampler,DistributedSampler]:
@@ -267,6 +291,8 @@ class TrainerDDP(TrainerSingle):
             self.sampler_train.set_epoch(epoch)
             self.sampler_val.set_epoch(epoch)
             self._run_epoch(epoch)
+            if epoch==0: # First epoch, save it anyways.``
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
@@ -274,7 +300,7 @@ class TrainerDDP(TrainerSingle):
         end=time.time()
         runtime=end-start
         print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
-        self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
+        #self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         self.runtime=runtime
@@ -300,9 +326,14 @@ class TrainerDDP(TrainerSingle):
         print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
         result=classification_report(y_true,y_pred)
         print(result)
-        metrics_generator(y_true=y_true,y_pred=y_pred,
-                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
-                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
 
 def PlotTraining(history,savedir:str,model_name:str):
     # This function will generate training and validation plots, and save it in ``savedir`` 
@@ -390,6 +421,41 @@ def metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str,runtim
         f.write(report)
         f.write(f"RUNTIME {model_name} : {runtime}")
 
+def binary_metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str,runtime:float):
+    #"""
+    #Metrics generator function for bunary classification
+    #This function will generate confusion matrix and classification report
+    #Plot and report are saved in ``savedir``
+    #"""
+    save_dir='./Results'+save_dir
+    cm=confusion_matrix(y_true,y_pred)
+    # Visualize the confusion matrix 
+    plt.clf()
+    plt.figure(figsize=(8,6))
+    # Prepare the label that we want to put in each cell.
+    cm_names=['False Pos','False Neg',
+              'True Pos','False Neg']
+    cm_counts=[count for count in cm.flatten()]
+    cm_percentages=["{0:.2%}".format(count) for count in cm.flatten()/np.sum(cm)]
+    labels=[f"{v1}\n{v2}\n{v3}" for v1,v2,v3 in 
+            zip(cm_names,cm_counts,cm_percentages)]
+    labels=np.asarray(labels).reshape(2,2)
+    sns.heatmap(data=cm,annot=labels,fmt='',cmap='Blues',
+                xticklabels=['Positive','Negative'],
+                yticklabels=['Positive','Negative'])
+    plt.title(f"Confusion Matrix of {model_name}")        
+    # Save the matrix
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir,exist_ok=True)
+    save_path=os.path.join(save_dir,f"cm_{model_name}")
+    plt.savefig(save_path)
+    # Create the classification report 
+    report=classification_report(y_true,y_pred)
+    file=f"/{model_name}_classification_report.txt"
+    with open(save_dir+file,'w') as f :
+        f.write(report)
+        f.write(f"RUNTIME {model_name} : {runtime}")
+
 def ddp_setup(rank:int,world_size:int):
     """
     Function for setting up DDP enviroinment
@@ -398,5 +464,5 @@ def ddp_setup(rank:int,world_size:int):
     :param world_size: (int) Total number of devices
     """
     os.environ['MASTER_ADDR']='127.0.0.8'
-    os.environ['MASTER_PORT']='20502'
+    os.environ['MASTER_PORT']='17929'
     init_process_group(backend='nccl',rank=rank,world_size=world_size)
