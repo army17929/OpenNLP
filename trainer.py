@@ -61,6 +61,7 @@ class TrainerSingle:
         self.trainloader,self.testloader,self.valloader=self.dataloader_single()
         self.best_model_path=''
         self.world_size=1
+        self.runtime=0
     
     def dataloader_single(self)->Tuple[DataLoader,DataLoader,DataLoader]:
         #"""
@@ -177,11 +178,13 @@ class TrainerSingle:
             if epoch % self.const['save_every']==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
         end=time.time()
+        runtime=end-start
         print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
         self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
-        
+        self.runtime=runtime
+
     def test(self):
         # Model evaluation function
         self.model.load_state_dict(torch.load(self.best_model_path))
@@ -206,7 +209,7 @@ class TrainerSingle:
         # Save the confusion matrix
         metrics_generator(y_true=y_true,y_pred=y_pred,
                      save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_1gpu",
-                     model_name=f"{self.const['model_name']}")
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
 
 class TrainerDDP(TrainerSingle):
     """
@@ -269,10 +272,12 @@ class TrainerDDP(TrainerSingle):
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
         end=time.time()
+        runtime=end-start
         print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
         self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
+        self.runtime=runtime
 
     def test(self):
         self.model.module.load_state_dict(
@@ -297,7 +302,7 @@ class TrainerDDP(TrainerSingle):
         print(result)
         metrics_generator(y_true=y_true,y_pred=y_pred,
                      save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
-                     model_name=f"{self.const['model_name']}")
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
 
 def PlotTraining(history,savedir:str,model_name:str):
     # This function will generate training and validation plots, and save it in ``savedir`` 
@@ -349,7 +354,7 @@ def prepare_const(num_epochs:int,batch_size:int,
     return const
 
 
-def metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str):
+def metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str,runtime:float):
     #"""
     #Metrics generator function 
     #This function will generate confusion matrix and classification report
@@ -383,6 +388,7 @@ def metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str):
     file=f"/{model_name}_classification_report.txt"
     with open(save_dir+file,'w') as f :
         f.write(report)
+        f.write(f"RUNTIME {model_name} : {runtime}")
 
 def ddp_setup(rank:int,world_size:int):
     """
