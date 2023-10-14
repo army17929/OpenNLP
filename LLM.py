@@ -22,6 +22,7 @@ class BERT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
+    
     def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): 
         D=data_processor(path=data_path,input_col=input_col,

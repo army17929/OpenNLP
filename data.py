@@ -54,7 +54,7 @@ class data_processor():
             os.makedirs(savedir)
         plt.savefig(savedir+'/'+filename)
 
-    def prepare_dataset(self,checkpoint,max_length=128,
+    def prepare_dataset(self,checkpoint,max_length=128, 
                         test_size=0.2,val_size=0.1,seed=42):
         #"""
         #Dataset preparation function 
@@ -85,6 +85,7 @@ class data_processor():
         X_val_text=[str(text) for text in X_val]
 
         # Convert vocabs into tensors
+        
         X_train_tensor=[tokenizer(str(text),return_tensors='pt',
                                 max_length=max_length,truncation=True,
                                 pad_to_max_length=True)['input_ids'] 

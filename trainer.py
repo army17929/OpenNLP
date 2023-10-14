@@ -432,6 +432,7 @@ def binary_metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str
     # Visualize the confusion matrix 
     plt.clf()
     plt.figure(figsize=(8,6))
+    
     # Prepare the label that we want to put in each cell.
     cm_names=['True Pos','False Neg',
               'False Pos','True Neg']
