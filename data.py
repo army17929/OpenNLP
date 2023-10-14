@@ -54,7 +54,7 @@ class data_processor():
             os.makedirs(savedir)
         plt.savefig(savedir+'/'+filename)
 
-    def prepare_dataset(self,df,checkpoint,max_length=128,
+    def prepare_dataset(self,checkpoint,max_length=128,
                         test_size=0.2,val_size=0.1,seed=42):
         #"""
         #Dataset preparation function 
@@ -73,8 +73,8 @@ class data_processor():
         tokenizer=AutoTokenizer.from_pretrained(checkpoint)
         tokenizer.pad_token=tokenizer.eos_token
         
-        X=df[self.input_col]
-        y=df[self.output_col]
+        X=self.df[self.input_col]
+        y=self.df[self.output_col]
 
         X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
         X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
@@ -134,7 +134,7 @@ class data_processor():
 
         return train_dataset,test_dataset,val_dataset
 
-    def prepare_dataset_BERT(self,df,checkpoint,max_length=128,
+    def prepare_dataset_BERT(self,checkpoint,max_length=128,
                              test_size=0.2,val_size=0.1,seed=42):
         #"""
         #Same function as above, but only for BERT
@@ -142,8 +142,8 @@ class data_processor():
         tokenizer=AutoTokenizer.from_pretrained(checkpoint)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # This is for BERT
         
-        X=df[self.input_col]
-        y=df[self.output_col]
+        X=self.df[self.input_col]
+        y=self.df[self.output_col]
 
         X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
         X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
