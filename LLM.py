@@ -1,4 +1,4 @@
-from trainer import TrainerSingle,TrainerDDP,prepare_const,ddp_setup
+from trainer import TrainerSingle,TrainerDDP,prepare_const,ddp_setup,ddp_setup_torchrun
 from model import CustomClassificationModel, peft, PEFTClassificationModel
 from data import data_processor
 import os 
@@ -22,7 +22,7 @@ class BERT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    
+
     def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): 
         D=data_processor(path=data_path,input_col=input_col,
@@ -123,6 +123,30 @@ class BERT():
                 nprocs=world_size)
         end=time.time()
         print(f"RUNTIME for all processes : {end-start}")
+
+    def run_BERT_torchrun(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f'BERT_{world_size}gpus')
+        ddp_setup_torchrun()
+
+        BERTTrainerDDP=TrainerDDP(gpu_id=int(os.environ['LOCAL_RANK']),
+                                  world_size=world_size,
+                                    model=model,
+                                    num_class=self.num_class,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    const=const)
+        BERTTrainerDDP.train(max_epochs=const['total_epochs'])
+        BERTTrainerDDP.test()
+
+        destroy_process_group()
 
 class GPT():
     """
@@ -231,6 +255,30 @@ class GPT():
                 nprocs=world_size)
         end=time.time()
         print(f"RUNTIME for all processes : {end-start}")
+
+    def run_GPT_torchrun(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f'GPT_{world_size}gpus')
+        ddp_setup_torchrun()
+
+        BERTTrainerDDP=TrainerDDP(gpu_id=int(os.environ['LOCAL_RANK']),
+                                  world_size=world_size,
+                                    model=model,
+                                    num_class=self.num_class,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    const=const)
+        BERTTrainerDDP.train(max_epochs=const['total_epochs'])
+        BERTTrainerDDP.test()
+
+        destroy_process_group()
 
 class Llama():
     """

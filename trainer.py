@@ -432,7 +432,6 @@ def binary_metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str
     # Visualize the confusion matrix 
     plt.clf()
     plt.figure(figsize=(8,6))
-    
     # Prepare the label that we want to put in each cell.
     cm_names=['True Pos','False Neg',
               'False Pos','True Neg']
@@ -467,3 +466,7 @@ def ddp_setup(rank:int,world_size:int):
     os.environ['MASTER_ADDR']='127.0.0.8'
     os.environ['MASTER_PORT']='17929'
     init_process_group(backend='nccl',rank=rank,world_size=world_size)
+
+def ddp_setup_torchrun():
+    init_process_group(backend='nccl')
+    os.environ['LOCAL_RANK']
