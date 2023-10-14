@@ -433,8 +433,8 @@ def binary_metrics_generator(y_true:list,y_pred:list,save_dir:str,model_name:str
     plt.clf()
     plt.figure(figsize=(8,6))
     # Prepare the label that we want to put in each cell.
-    cm_names=['False Pos','False Neg',
-              'True Pos','False Neg']
+    cm_names=['True Pos','False Neg',
+              'False Pos','True Neg']
     cm_counts=[count for count in cm.flatten()]
     cm_percentages=["{0:.2%}".format(count) for count in cm.flatten()/np.sum(cm)]
     labels=[f"{v1}\n{v2}\n{v3}" for v1,v2,v3 in 
