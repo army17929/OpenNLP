@@ -32,8 +32,7 @@ class BERT():
         self.X=self.df[input_col] 
         self.y=self.df[output_col] 
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset_BERT(df=self.df,
-                                                             checkpoint=self.checkpoint)
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset_BERT(checkpoint=self.checkpoint)
         
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
@@ -147,8 +146,8 @@ class GPT():
         self.X=self.df[input_col] 
         self.y=self.df[output_col] 
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,
-                                                                                     checkpoint=self.checkpoint)
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint)
+
     def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
         # This function fine tunes GPT2 on a single GPU.
@@ -255,7 +254,7 @@ class Llama():
         self.X=self.df[input_col] # Raw input data
         self.y=self.df[output_col] # Raw output data
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(df=self.df,checkpoint=self.checkpoint)
+        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint)
 
     def run_LLAMA(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
