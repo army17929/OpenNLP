@@ -1,4 +1,4 @@
-from trainer import TrainerSingle,TrainerDDP,prepare_const,ddp_setup,ddp_setup_torchrun
+from trainer import TrainerSingle,TrainerDDP,Trainer_multinode,prepare_const,ddp_setup,ddp_setup_torchrun
 from model import CustomClassificationModel, peft, PEFTClassificationModel
 from data import data_processor
 import os 
@@ -135,16 +135,15 @@ class BERT():
                             model_name=f'BERT_{world_size}gpus')
         ddp_setup_torchrun()
 
-        BERTTrainerDDP=TrainerDDP(gpu_id=int(os.environ['LOCAL_RANK']),
-                                  world_size=world_size,
+        BERTTrainerMN=Trainer_multinode(world_size=world_size,
                                     model=model,
                                     num_class=self.num_class,
                                     trainset=self.train_dataset,
                                     testset=self.test_dataset,
                                     valset=self.val_dataset,
                                     const=const)
-        BERTTrainerDDP.train(max_epochs=const['total_epochs'])
-        BERTTrainerDDP.test()
+        BERTTrainerMN.train(max_epochs=const['total_epochs'])
+        BERTTrainerMN.test()
 
         destroy_process_group()
 
@@ -267,16 +266,15 @@ class GPT():
                             model_name=f'GPT_{world_size}gpus')
         ddp_setup_torchrun()
 
-        BERTTrainerDDP=TrainerDDP(gpu_id=int(os.environ['LOCAL_RANK']),
-                                  world_size=world_size,
+        GPTTrainerMN=Trainer_multinode(world_size=world_size,
                                     model=model,
                                     num_class=self.num_class,
                                     trainset=self.train_dataset,
                                     testset=self.test_dataset,
                                     valset=self.val_dataset,
                                     const=const)
-        BERTTrainerDDP.train(max_epochs=const['total_epochs'])
-        BERTTrainerDDP.test()
+        GPTTrainerMN.train(max_epochs=const['total_epochs'])
+        GPTTrainerMN.test()
 
         destroy_process_group()
 

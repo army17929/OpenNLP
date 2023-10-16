@@ -283,7 +283,161 @@ class TrainerDDP(TrainerSingle):
         checkpoint=self.model.module.state_dict()
         model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
         torch.save(checkpoint,model_path)
-    
+        
+    def train(self,max_epochs:int):
+        self.model.train()
+        start=time.time()
+        for epoch in range(max_epochs):
+            self.sampler_train.set_epoch(epoch)
+            self.sampler_val.set_epoch(epoch)
+            self._run_epoch(epoch)
+            if epoch==0: # First epoch, save it anyways.``
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
+            if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
+            if epoch%self.const["save_every"]==0:
+                self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+        end=time.time()
+        runtime=end-start
+        print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
+        #self._save_checkpoint(epoch=max_epochs-1,model_name=f"Last_{self.const['model_name']}")
+        #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
+        self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
+        self.runtime=runtime
+
+    def test(self):
+        self.model.module.load_state_dict(
+            torch.load(self.best_model_path,map_location="cpu"))
+        self.model.eval()
+        y_true=[]
+        y_pred=[]
+        # Eval mode
+        with torch.no_grad():
+            for input,mask,tgt in self.testloader:
+                input=input.to(self.gpu_id)
+                mask=mask.to(self.gpu_id)
+                tgt=tgt.to(self.gpu_id)
+                out=self.model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                self.test_acc.update(out,tgt)
+
+        print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+class Trainer_multinode(TrainerDDP):
+    """
+    Trainer module for Multi node distributed learning. 
+    This class assumes that users use ``torchrun``
+
+    :param gpu_id: (int) index of current device
+    :param model: (object) model for training  
+    :param trainset: (TensorDataset) tensor dataset for training
+    :param testset: (TensorDataset) tensor dataset for test
+    :param valset: (TensorDataset) tensor dataset for validation
+    :param const: (Dict) Dictionary that contains learning hyperparameters 
+    """
+    def __init__(
+            self, world_size:int, 
+            model:nn.Module,
+            trainset:Dataset,testset:Dataset,
+            valset:Dataset, num_class:int,
+            const
+    )->None:
+        super().__init__(world_size=world_size,
+                         gpu_id=int(os.environ['LOCAL_RANK']),
+                         model=model,
+                         trainset=trainset,testset=testset,valset=valset,
+                         num_class=num_class,const=const)
+        torch.cuda.empty_cache()
+        # Wrap the model with DDP
+        self.trainset,self.testset,self.valset=trainset,testset,valset
+        self.const=const
+        self.trainloader,self.testloader,self.valloader,self.sampler_train,self.sampler_val= self.dataloader_ddp()
+        self.best_model_path=''
+        self.num_class=num_class
+        self.world_size=world_size
+        # torchrun takes care of gpu index under the hood, by referring to env variables.
+        self.local_rank=int(os.environ['LOCAL_RANK']) 
+        self.gpu_id=self.local_rank
+        torch.cuda.set_device(self.local_rank)
+        # Local rank can be referred from environment variable.
+        self.global_rank=int(os.environ['RANK'])
+        # Global rank = Total number of devices
+        self.model=model.to(self.local_rank)
+        self.model=DDP(self.model,device_ids=[self.local_rank],find_unused_parameters=True)
+
+    def dataloader_ddp(self)-> Tuple[DataLoader,DataLoader,DataLoader,DistributedSampler,DistributedSampler]:
+        #"""
+        #Dataloader function for multiple GPUs. 
+        #This function will distribute the data for each device. 
+        #"""
+        sampler_train=DistributedSampler(self.trainset)
+        sampler_val=DistributedSampler(self.valset)
+        trainloader=DataLoader(self.trainset,batch_size=self.const['batch_size'],
+                            shuffle=False,sampler=sampler_train,
+                            num_workers=2)
+        testloader=DataLoader(self.testset,batch_size=self.const['batch_size'])
+        valloader=DataLoader(self.valset,batch_size=self.const['batch_size'],
+                            shuffle=False,sampler=DistributedSampler(self.valset,shuffle=False),
+                            num_workers=2)
+        return trainloader,testloader,valloader,sampler_train,sampler_val
+
+    def _save_checkpoint(self,epoch:int,model_name:str):
+        checkpoint=self.model.module.state_dict()
+        model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
+        torch.save(checkpoint,model_path)
+
+    def _run_epoch(self,epoch:int):
+        # Running each epoch
+        self.model.train()
+        loss=0.0
+        val_loss=0.0
+        self.train_acc.reset()
+        for input,mask,tgt in self.trainloader:
+            input=input.to(self.gpu_id)
+            mask=mask.to(self.gpu_id)
+            tgt=tgt.to(self.gpu_id)
+            src=[input,mask] 
+            loss_batch=self._run_batch(src,tgt)
+            loss+=loss_batch
+        self.lr_scheduler.step()
+        self.train_acc_array[epoch]=self.train_acc.compute().item()
+        self.train_loss_array[epoch]=loss/len(self.trainloader)
+        
+        # Run on the validation set
+        self.model.eval()
+        self.val_acc.reset()
+        for input,mask,tgt in self.valloader:
+            input=input.to(self.gpu_id)
+            mask=mask.to(self.gpu_id)
+            tgt=tgt.to(self.gpu_id)
+            src=[input,mask] 
+            loss_batch_val=self._run_batch(src,tgt)
+            val_loss+=loss_batch_val
+        self.lr_scheduler.step()
+        
+        # Save validation acc
+        self.val_acc_array[epoch]=self.val_acc.compute().item()
+        self.val_loss_array[epoch]=val_loss/len(self.valloader)
+        print(f"{'-'*90}\n [GPU{self.global_rank}] Epoch {epoch+1:2d} \
+              | Batchsize: {self.const['batch_size']} | Steps : {len(self.trainloader)} \
+                LR :{self.optimizer.param_groups[0]['lr']:.2f}, \
+                Train_Loss: {loss/len(self.trainloader):.2f}\
+                Val_Loss: {val_loss/len(self.valloader):.2f}\
+                Training_Acc: {100*self.train_acc.compute().item():.2f}% \
+                Val_Acc: {100*self.val_acc.compute().item():.2f}",flush=True)
+
     def train(self,max_epochs:int):
         self.model.train()
         start=time.time()
@@ -464,9 +618,12 @@ def ddp_setup(rank:int,world_size:int):
     :param world_size: (int) Total number of devices
     """
     os.environ['MASTER_ADDR']='127.0.0.8'
-    os.environ['MASTER_PORT']='17929'
+    os.environ['MASTER_PORT']='10703'
     init_process_group(backend='nccl',rank=rank,world_size=world_size)
 
 def ddp_setup_torchrun():
+    """
+    Torchrun will set up DDP environemnt
+    """
     init_process_group(backend='nccl')
-    os.environ['LOCAL_RANK']
+    torch.cuda.set_device(int(os.environ['LOCAL_RANK']))
