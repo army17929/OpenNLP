@@ -8,11 +8,11 @@ import re
 import nltk 
 nltk.download('punkt',quiet=True)
 nltk.download('stopwords',quiet=True)
-from data import load_preprocessed_nuclear_data
-from trainer import metrics_generator
+from opennlp.trainer.trainer import metrics_generator,binary_metrics_generator
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
+import pandas as pd
 import time
 
 class ClassicalML():
@@ -25,11 +25,13 @@ class ClassicalML():
     :param seed: (int) random seed number for train and test split
     :param test_size: (float) portion of test data
     """
-    def __init__(self,df,input_col:str,
+    def __init__(self,data_path:str,input_col:str,
                  output_col:str,
-                 seed:int,test_size=0.2):
-        self.X=self.vectorize_data(df=df,text_column=input_col) # Input data
-        self.y=df[output_col] # Output data
+                 seed:int,test_size=0.2,encoding='utf-8'):
+        self.df=pd.read_csv(data_path,encoding=encoding)
+        self.X=self.vectorize_data(text_column=input_col) # Input data
+        self.y=self.df[output_col] # Output data
+        self.num_class=len(self.df[output_col].unique()) # Number of class
         self.X_train,self.X_test,self.y_train,self.y_test=train_test_split(
             self.X,self.y,test_size=test_size,random_state=seed)
         
@@ -47,17 +49,16 @@ class ClassicalML():
         stemmed_tokens = [stemmer.stem(token) for token in filtered_tokens]
         return ' '.join(stemmed_tokens)
 
-    def vectorize_data(self,df,text_column:str):
+    def vectorize_data(self,text_column:str):
         #"""
         #This function vectorizes texts using TfidVectorizer.
 
-        #:param df: (DataFrame) dataframe for model training 
         #:param text_column: (str) name of the column that contains text
         #"""
         # Preprocess the data
-        df[text_column] = df[text_column].apply(self.preprocess_text)
+        self.df[text_column] = self.df[text_column].apply(self.preprocess_text)
         # Define input and output
-        X = df[text_column]
+        X = self.df[text_column]
         # Vectorization
         vectorizer = TfidfVectorizer()
         X_vectorized = vectorizer.fit_transform(X)
@@ -74,13 +75,22 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train, self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
         # Prediction
         y_pred = model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,
+        if self.num_class ==2 : # If the problem is binary classification, 
+            binary_metrics_generator(y_true=self.y_test,
                           y_pred=y_pred,
                         save_dir=f"/RandomForest_estimator{n_estimators}",
-                        model_name='Random Forest')
+                        model_name='Random Forest',
+                        runtime=runtime)
+        else :
+            metrics_generator(y_true=self.y_test,
+                          y_pred=y_pred,
+                        save_dir=f"/RandomForest_estimator{n_estimators}",
+                        model_name='Random Forest',
+                        runtime=runtime)
 
     def run_DecisionTree(self):
         #"""
@@ -91,12 +101,19 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,y_pred=y_pred,
+        if self.num_class==2 :
+            binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/DecisionTree",
-                    model_name='DecisionTree')
+                    model_name='DecisionTree',runtime=runtime)
+
+        else:
+            metrics_generator(y_true=self.y_test,y_pred=y_pred,
+                    save_dir=f"/DecisionTree",
+                    model_name='DecisionTree',runtime=runtime)
 
     def run_MNB(self,alpha:float):
         #"""
@@ -108,12 +125,18 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
 
         y_pred=model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,y_pred=y_pred,
+        if self.num_class==2:
+            binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/MNB",
-                            model_name='MNB')
+                        model_name='MNB',runtime=runtime)
+        else:
+            metrics_generator(y_true=self.y_test,y_pred=y_pred,
+                        save_dir=f"/MNB",
+                        model_name='MNB',runtime=runtime)
 
     def run_GradBoost(self,n_estimators:int):
         """
@@ -125,12 +148,18 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
 
         y_pred=model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,y_pred=y_pred,
+        if self.num_class==2:
+            binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/GradBoost_estimator{n_estimators}",
-                            model_name='GradBoost')
+                        model_name='GradBoost',runtime=runtime) 
+        else:
+            metrics_generator(y_true=self.y_test,y_pred=y_pred,
+                        save_dir=f"/GradBoost_estimator{n_estimators}",
+                        model_name='GradBoost',runtime=runtime)
 
     def run_AdaBoost(self,n_estimators:int):
         """
@@ -146,11 +175,17 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
         y_pred=model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,y_pred=y_pred,
+        if self.num_class==2:
+            binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/AdaBoost_estimator{n_estimators}",
-                        model_name='AdaBoost')    
+                        model_name='AdaBoost',runtime=runtime)    
+        else:
+            metrics_generator(y_true=self.y_test,y_pred=y_pred,
+                        save_dir=f"/AdaBoost_estimator{n_estimators}",
+                        model_name='AdaBoost',runtime=runtime)    
         
     def run_SVC(self):
         #"""
@@ -160,9 +195,15 @@ class ClassicalML():
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
-        print(f"RUNTIME : {end-start}")
+        runtime=end-start
+        print(f"RUNTIME : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
-        metrics_generator(y_true=self.y_test,y_pred=y_pred,
+        if self.num_class==2:
+            binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
-                    model_name='LinearSVC')
+                    model_name='LinearSVC', runtime=runtime)
+        else:
+            metrics_generator(y_true=self.y_test,y_pred=y_pred,
+                    save_dir=f"/LinearSVC",
+                    model_name='LinearSVC', runtime=runtime)

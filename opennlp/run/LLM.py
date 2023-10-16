@@ -1,6 +1,6 @@
-from trainer import TrainerSingle,TrainerDDP,Trainer_multinode,prepare_const,ddp_setup,ddp_setup_torchrun
-from model import CustomClassificationModel, peft, PEFTClassificationModel
-from data import data_processor
+from opennlp.trainer.trainer import TrainerSingle,TrainerDDP,Trainer_multinode,prepare_const,ddp_setup,ddp_setup_torchrun
+from opennlp.custommodel.model import CustomClassificationModel, peft, PEFTClassificationModel
+from opennlp.preprocessing.data import data_processor
 import os 
 import time
 from pathlib import Path
