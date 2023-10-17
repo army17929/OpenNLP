@@ -6,7 +6,7 @@ from opennlp.run import LLM,ml,nn
 
 logo="""
 
-\t\t\t                  OPENNLP : NLP for everybody
+\t\t\tOpenNLP: An Open Source NLP Package for Sentiment Classification
 \t\t\t ███████╗███████║███████╗███╗   ██╗███╗   ██╗██╗     ███████║                        
 \t\t\t ██║  ██║██   ██║██╔════╝████╗  ██║████╗  ██║██╗     ██   ██║                     
 \t\t\t ██║  ██║███████║██████╗ ██╔██╗ ██║██╔██╗ ██║██╗     ███████║                  
@@ -14,7 +14,7 @@ logo="""
 \t\t\t ███████║██║     ███████╗██║ ╚████║██║ ╚████║███████╗██║                      
 \t\t\t ═══════╝══╝     ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝══╝                                                                 
 \t\t\t      Copyright © 2023 University of Michigan - Ann Arbor
-\t\t\t   Artificial Intelligence and Multiphysic Simulation group
+\t\t\t   Artificial Intelligence and Multiphysics Simulation Group
 
                        \n"""
 print(logo)
