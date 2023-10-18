@@ -7,6 +7,8 @@
     3.TweetNLP
     4.TwitRoBERT
     5.pysentiLM
+    6.stanza
+    7.textblob
 
     Different properties like mean, majority result and Standard Deviation of the tweets can be calculated using OpenNLP. 
 
