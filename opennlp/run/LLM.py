@@ -1,4 +1,4 @@
-from opennlp.trainer.trainer import TrainerSingle,TrainerDDP,Trainer_multinode,prepare_const,ddp_setup,ddp_setup_torchrun
+from opennlp.trainer.trainer import TrainerFSDP,TrainerSingle,TrainerDDP,Trainer_multinode,prepare_const,ddp_setup,ddp_setup_torchrun
 from opennlp.custommodel.model import CustomClassificationModel, peft, PEFTClassificationModel
 from opennlp.preprocessing.data import data_processor
 import os 
@@ -7,6 +7,18 @@ from pathlib import Path
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group
 import pandas as pd
+import torch
+from torch.distributed.fsdp import (MixedPrecision,
+                                    ShardingStrategy,
+                                    BackwardPrefetch,
+                                    FullStateDictConfig,
+                                    StateDictType)
+from torch.distributed.fsdp.wrap import (transformer_auto_wrap_policy,
+                                             size_based_auto_wrap_policy,
+                                             _module_wrap_policy)
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload,BackwardPrefetch
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy,_module_wrap_policy
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -47,7 +59,7 @@ class BERT():
         #:params gpu_id: (int) index of device you want to use. 
         #"""
         model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
-
+        
         # Save learning hyperparamters in a dictionary.
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
@@ -81,7 +93,7 @@ class BERT():
 
         # Prepare the model for classification problem 
         model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
-
+        
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name=f'BERT_{world_size}gpus')
@@ -96,7 +108,7 @@ class BERT():
                                     testset=self.test_dataset,
                                     valset=self.val_dataset,
                                     const=const)
-        
+        print(f"MEMORY RESERVED (before training) : {torch.cuda.memory_reserved()}")
         BERTTrainerDDP.train(max_epochs=const['total_epochs'])
         BERTTrainerDDP.test()
 
@@ -129,7 +141,8 @@ class BERT():
                     epochs:int,
                     bs:int,lr:int
                     ,save_every:int):
-        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
         const=prepare_const(num_epochs=epochs,batch_size=bs,
                             lr=lr,save_every=save_every,
                             model_name=f'BERT_{world_size}gpus')
@@ -142,10 +155,63 @@ class BERT():
                                     testset=self.test_dataset,
                                     valset=self.val_dataset,
                                     const=const)
+        print(f"MEMORY RESERVED(before training) : {torch.cuda.memory_reserved()}")
         BERTTrainerMN.train(max_epochs=const['total_epochs'])
         BERTTrainerMN.test()
 
         destroy_process_group()
+    
+    def BERT_fsdp(self,rank:int,
+                      world_size:int,
+                      epochs:int,bs:int,lr:float,
+                      save_every:int,
+                      cpu_offload=False):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f"BERT_FSDP_{world_size}gpus")
+        # FSDP setup is same as DDP
+        ddp_setup(rank=rank,world_size=world_size)
+
+        BERTTrainerfsdp=TrainerFSDP(world_size=world_size,
+                                    gpu_id=rank,
+                                    model=model,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    num_class=self.num_class,
+                                    const=const,
+                                    lr=lr,epochs=epochs,
+                                    cpu_offload=cpu_offload)
+        BERTTrainerfsdp.train()
+        
+        destroy_process_group()
+
+    def run_BERT_FSDP(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int,
+                    cpu_offload=False):
+        """
+        This function trains the model on multiple GPUs using pytorch DDP library.
+
+        :param world_size: (int) total number of GPUs available 
+        :param epochs: (int) number of total epochs
+        :param bs: (int) batch size
+        :param lr: (float) learning rate
+        :param save_every: (int) Model will be saved for every ``save_every`` epochs.
+        """
+
+        # Prepare the model for classification problem 
+        start=time.time()
+        mp.spawn(self.BERT_fsdp,
+                 args=(world_size,epochs,bs,lr,save_every,cpu_offload),
+                nprocs=world_size)
+        end=time.time()
+        print(f"RUNTIME for all processes : {end-start}")
+
 
 class GPT():
     """
@@ -278,6 +344,56 @@ class GPT():
 
         destroy_process_group()
 
+    def GPT_fsdp(self,rank:int,
+                      world_size:int,
+                      epochs:int,bs:int,lr:float,
+                      save_every:int,cpu_offload=False):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f"BERT_GPT_{world_size}gpus")
+        # FSDP setup is same as DDP
+        ddp_setup(rank=rank,world_size=world_size)
+
+        GPTTrainerfsdp=TrainerFSDP(world_size=world_size,
+                                    gpu_id=rank,
+                                    model=model,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    num_class=self.num_class,
+                                    const=const,
+                                    lr=lr,epochs=epochs,
+                                    cpu_offload=cpu_offload)
+        GPTTrainerfsdp.train()
+        
+        destroy_process_group()
+
+    def run_GPT_FSDP(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int,
+                    cpu_offload=False):
+        """
+        This function trains the model on multiple GPUs using pytorch DDP library.
+
+        :param world_size: (int) total number of GPUs available 
+        :param epochs: (int) number of total epochs
+        :param bs: (int) batch size
+        :param lr: (float) learning rate
+        :param save_every: (int) Model will be saved for every ``save_every`` epochs.
+        """
+
+        # Prepare the model for classification problem 
+        start=time.time()
+        mp.spawn(self.GPT_fsdp,
+                 args=(world_size,epochs,bs,lr,save_every,cpu_offload),
+                nprocs=world_size)
+        end=time.time()
+        print(f"RUNTIME for all processes : {end-start}")
+
 class Llama():
     """
     Large Language Model Meta AI(Llama) module 
@@ -334,3 +450,165 @@ class Llama():
         
         trainer.train(const['total_epochs'])
         trainer.test()
+
+    def run_LLAMA_torchrun(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int):
+        PEFT=peft(checkpoint=self.checkpoint)
+        model=PEFT.model # Quantized model
+        model=PEFTClassificationModel(model=model,num_class=self.num_class)
+        print(model)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f'Llama_{world_size}gpus')
+        ddp_setup_torchrun()
+
+        LlamaTrainer=Trainer_multinode(world_size=world_size,
+                                    model=model,
+                                    num_class=self.num_class,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    const=const)
+        LlamaTrainer.train(max_epochs=const['total_epochs'])
+        LlamaTrainer.test()
+
+        destroy_process_group()
+
+    def LLAMA_DDP(self,rank:int,
+                world_size:int,epochs:int,bs:int,lr:int
+                ,save_every:int):
+        #"""
+        #This set up environment for distributed learning.
+
+        #:param rank: (int) current working GPU index
+        #:param world_size: (int) total number of GPUs available 
+        #:param epochs: (int) number of total epochs
+        #:param bs: (int) batch size
+        #:param lr: (float) learning rate
+        #:param save_every: (int) Model will be saved for every {save_every} epochs.
+        #"""
+
+        # Prepare the model for classification problem 
+        print('CURRENT DEVICE',torch.cuda.current_device())
+        PEFT=peft(checkpoint=self.checkpoint) # Create an instance
+        model=PEFT.model # Load the quantized model
+        tokenizer=PEFT.tokenizer # Load the tokenizer
+
+        model=PEFTClassificationModel(model=model,num_class=self.num_class).to(f'cuda:{rank}')
+        print(model)
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f'Llama_{world_size}gpus')
+
+        ddp_setup(rank=rank,world_size=world_size)
+        print("DDP setup completed...")
+        # Create an instance from the Trianer single class
+        llamaTrainerDDP=TrainerDDP(gpu_id=rank,world_size=world_size,
+                                    model=model,
+                                    num_class=self.num_class,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    const=const)
+        
+        llamaTrainerDDP.train(max_epochs=const['total_epochs'])
+        llamaTrainerDDP.test()
+
+        destroy_process_group()
+
+    def run_LLAMA_DDP(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int):
+        """
+        This function trains the model on multiple GPUs using pytorch DDP library.
+
+        :param world_size: (int) total number of GPUs available 
+        :param epochs: (int) number of total epochs
+        :param bs: (int) batch size
+        :param lr: (float) learning rate
+        :param save_every: (int) Model will be saved for every ``save_every`` epochs.
+        """
+
+        # Prepare the model for classification problem 
+        start=time.time()
+        mp.spawn(self.LLAMA_DDP,args=(world_size,epochs,bs,lr,save_every),
+                nprocs=world_size)
+        end=time.time()
+        print(f"RUNTIME for all processes : {end-start}")
+
+    def LLAMA_fsdp(self,rank:int,
+                      world_size:int,
+                      epochs:int,bs:int,lr:float,
+                      save_every:int,cpu_offload=False):
+        
+        print('CURRENT DEVICE',torch.cuda.current_device())
+        print(torch.cuda.get_device_name())
+        print(torch.cuda.device_count())
+        peftmodel=peft(checkpoint=self.checkpoint).model
+        model=CustomClassificationModel(checkpoint=self.checkpoint,num_class=self.num_class)
+        model_quantized=PEFTClassificationModel(model=peftmodel,num_class=self.num_class)
+        from functools import partial
+        custom_wrap_policy=partial(size_based_auto_wrap_policy,
+                                   min_num_params=int(1e2))
+        # FSDP setup is same as DDP
+        ddp_setup(rank=rank,world_size=world_size)
+
+        '''
+        model_wrapped=FSDP(model.half(),
+               auto_wrap_policy=custom_wrap_policy,
+               #mixed_precision=fpSixteen,
+               cpu_offload=CPUOffload(offload_params=True),
+               sharding_strategy=ShardingStrategy.FULL_SHARD,
+               device_id=torch.cuda.current_device())
+               '''
+        
+        n_params=sum(p.numel() for p in model.parameters())
+        print('CURRENT DEVICE',torch.cuda.current_device())
+        print(f'TOTAL PARAMS : {n_params}')
+        const=prepare_const(num_epochs=epochs,batch_size=bs,
+                            lr=lr,save_every=save_every,
+                            model_name=f"LLAMA_GPT_{world_size}gpus")
+
+        llamaTrainerfsdp=TrainerFSDP(world_size=world_size,
+                                    gpu_id=rank,
+                                    model=model,
+                                    trainset=self.train_dataset,
+                                    testset=self.test_dataset,
+                                    valset=self.val_dataset,
+                                    num_class=self.num_class,
+                                    const=const,
+                                    lr=lr,epochs=epochs,
+                                    cpu_offload=cpu_offload)
+        llamaTrainerfsdp.train()
+        
+        destroy_process_group()
+
+    def run_LLAMA_FSDP(self,
+                    world_size:int,
+                    epochs:int,
+                    bs:int,lr:int
+                    ,save_every:int,
+                    cpu_offload:bool):
+        """
+        This function trains the model on multiple GPUs using pytorch DDP library.
+
+        :param world_size: (int) total number of GPUs available 
+        :param epochs: (int) number of total epochs
+        :param bs: (int) batch size
+        :param lr: (float) learning rate
+        :param save_every: (int) Model will be saved for every ``save_every`` epochs.
+        """
+
+        # Prepare the model for classification problem 
+        start=time.time()
+        mp.set_start_method('spawn')
+        mp.spawn(self.LLAMA_fsdp,
+                 args=(world_size,epochs,bs,lr,save_every,cpu_offload),
+                nprocs=world_size)
+        end=time.time()
+        print(f"RUNTIME for all processes : {end-start}")

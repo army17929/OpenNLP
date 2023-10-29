@@ -9,13 +9,25 @@ from typing import Tuple
 import torchmetrics
 import numpy as np
 import torch
+from functools import partial
+from torch.optim.lr_scheduler import StepLR
+import torch.distributed as dist 
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group
+from torch.distributed.fsdp import (MixedPrecision,
+                                    ShardingStrategy,
+                                    BackwardPrefetch,
+                                    FullStateDictConfig,
+                                    StateDictType)
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload,BackwardPrefetch
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy,_module_wrap_policy
 import bitsandbytes as bnb
-import os
 from sklearn.metrics import classification_report,confusion_matrix
 import time
+import os 
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
 
 class TrainerSingle:
     """
@@ -37,12 +49,14 @@ class TrainerSingle:
         self.const=const # Learning parameters 
         self.batch_size=self.const['batch_size']
         self.model=model.to(self.gpu_id) # Send the model to GPU
+        n_params=sum(p.numel() for p in model.parameters())
+        print(f"Total number of parameters : {n_params}")
         self.num_class=num_class
         self.trainset=trainset 
         self.testset=testset
         self.valset=valset
         self.criterion=nn.CrossEntropyLoss()
-        self.optimizer=bnb.optim.AdamW8bit(self.model.parameters(),
+        self.optimizer=bnb.optim.Adam8bit(self.model.parameters(),
                                  lr=self.const['lr'])
         self.lr_scheduler=optim.lr_scheduler.StepLR(
             self.optimizer,self.const['lr_step_size']
@@ -91,11 +105,13 @@ class TrainerSingle:
     def _run_batch(self,src:list,tgt:Tensor)->float:
         # Running each batch
         self.optimizer.zero_grad() 
+        #with torch.autocast(device_type="cuda",dtype=torch.bfloat16):
         out=self.model(src[0],src[1])
         loss=self.criterion(out,tgt)
+        # loss.register_hook(lambda grad: print(grad.dtype))
         loss.backward()
         self.optimizer.step()
-
+        # print(self.optimizer.state_dict()['state'][0])
         self.train_acc.update(out,tgt)
         self.val_acc.update(out,tgt)
         return loss.item()
@@ -195,6 +211,7 @@ class TrainerSingle:
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch % self.const['save_every']==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
         end=time.time()
         runtime=end-start
         print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
@@ -254,10 +271,13 @@ class TrainerDDP(TrainerSingle):
     )->None:
         super().__init__(gpu_id,model,trainset,
                          testset,valset,const,num_class)
+        print("DDP Training initializing...")
         torch.cuda.set_device(gpu_id)
+        print(f"Setting device to {gpu_id}")
         torch.cuda.empty_cache()
         # Wrap the model with DDP
         self.model=DDP(self.model,device_ids=[gpu_id],find_unused_parameters=True)
+        print(f'model wrapped with DDP... \n {model}')
         self.trainloader,self.testloader,self.valloader,self.sampler_train,self.sampler_val= self.dataloader_ddp()
         self.best_model_path=''
         self.num_class=num_class
@@ -285,6 +305,8 @@ class TrainerDDP(TrainerSingle):
         torch.save(checkpoint,model_path)
         
     def train(self,max_epochs:int):
+        self.model.to(self.gpu_id)
+        print(f"model moved to {self.gpu_id}")
         self.model.train()
         start=time.time()
         for epoch in range(max_epochs):
@@ -297,6 +319,7 @@ class TrainerDDP(TrainerSingle):
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
         end=time.time()
         runtime=end-start
         print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
@@ -334,6 +357,200 @@ class TrainerDDP(TrainerSingle):
             metrics_generator(y_true=y_true,y_pred=y_pred,
                         save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
                         model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+class TrainerFSDP() :
+    def __init__(self,
+               world_size:int,
+               model:nn.Module,
+               trainset:Dataset,testset:Dataset,valset:Dataset,
+               num_class:int,const,
+               lr:float,epochs:int,
+               min_num_params=int(1e2),
+               cpu_offload=False,
+               full_shard=True,mixed_precision=None):
+        
+        torch.cuda.empty_cache()
+        self.num_class=num_class
+        self.total_epochs=epochs
+        self.const=const
+        self.trainset=trainset
+        self.testset=testset
+        self.valset=valset
+
+        self.local_rank=int(os.environ['LOCAL_RANK'])
+        #torch.cuda.set_device(self.local_rank)
+        print(f"DEVICE SET TO {self.local_rank}")
+        self.global_rank=int(os.environ['RANK'])
+        print(f"global rank : {self.global_rank}")
+
+        # For training metrics
+        self.train_acc=torchmetrics.Accuracy(
+            task="multiclass",num_classes=self.num_class,average="micro"
+        ).to(self.local_rank)
+        self.val_acc=torchmetrics.Accuracy(
+            task="multiclass",num_classes=self.num_class,average="micro"
+        ).to(self.local_rank)
+        self.test_acc=torchmetrics.Accuracy(
+            task="multiclass",num_classes=self.num_class,average="micro"
+        ).to(self.local_rank) 
+        self.train_acc_array=torch.zeros(self.const['total_epochs'])
+        self.val_acc_array=torch.zeros(self.const['total_epochs'])
+        self.train_loss_array=torch.zeros(self.const['total_epochs'])
+        self.val_loss_array=torch.zeros(self.const['total_epochs'])
+        self.best_model_path=''
+
+        self.train_loader,self.test_loader,self.val_loader,self.train_sampler,self.val_sampler=self.dataloader_fsdp()
+        self.mem_alloc_tracker=[]
+        self.mem_reserved_tracker=[]
+        self.kwargs={}
+        if cpu_offload:
+            self.kwargs.update(cpu_offload=CPUOffload(offload_params=True))
+        if not full_shard:
+            self.kwargs.update(sharding_strategy=ShardingStrategy.SHARD_GRAD_OP)
+        if mixed_precision:
+            self.kwargs.update(mixed_precision=MixedPrecision(param_dtype=torch.bfloat16,
+                                                                # Gradient communication precision.
+                                                                reduce_dtype=torch.bfloat16,
+                                                                # Buffer precision.
+                                                                buffer_dtype=torch.bfloat16))
+        print(self.kwargs)
+        self.model=FSDP(model,auto_wrap_policy=partial(size_based_auto_wrap_policy,
+                                                    min_num_params=min_num_params),
+                                                    **self.kwargs)
+        print('model FSDP wrapped.. \n',self.model)
+        if cpu_offload==False:
+            self.model=self.model.to(self.local_rank)
+        self.optimizer=bnb.optim.Adam8bit(self.model.parameters(),lr=lr)
+        self.world_size=world_size
+        self.runtime=0
+        self.n_params=sum(p.numel() for p in model.parameters()) # Total parameters
+        self.cpu_offload=cpu_offload # CPU offload option
+        self.min_num_params=min_num_params # Minimum parameter to wrap the model with FSDP
+        print(f"NUMBER OF TOTAL PARAMETER : {self.n_params} \n \
+              ESTIMATED MODEL SHARD PER DEVICE (FP32) : {4*self.n_params/self.world_size/int(1e9)} GB \n")
+
+    def dataloader_fsdp(self)-> Tuple[DataLoader,DataLoader,DataLoader,DistributedSampler,DistributedSampler]:
+        #"""
+        #Dataloader function for multiple GPUs. 
+        #This function will distribute the data for each device. 
+        #"""
+        sampler_train=DistributedSampler(self.trainset)
+        sampler_val=DistributedSampler(self.valset)
+        trainloader=DataLoader(self.trainset,batch_size=self.const['batch_size'],
+                            shuffle=False,sampler=sampler_train,
+                            num_workers=2)
+        testloader=DataLoader(self.testset,batch_size=self.const['batch_size'])
+        valloader=DataLoader(self.valset,batch_size=self.const['batch_size'],
+                            shuffle=False,sampler=DistributedSampler(self.valset,shuffle=False),
+                            num_workers=2)
+        return trainloader,testloader,valloader,sampler_train,sampler_val
+
+    def _save_checkpoint(self,epoch:int,model_name:str):
+        checkpoint=self.model.module.state_dict()
+        model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
+        torch.save(checkpoint,model_path)
+
+    def run_epoch(self,optimizer,epoch):
+        self.model.train()
+        self.train_acc.reset()
+        print(f"current local rank {self.local_rank}, global_rank {self.global_rank}")
+        fsdp_loss=torch.zeros(2).to(self.local_rank)
+        for input,mask,label in self.train_loader:
+            input,mask,label=input.to(self.local_rank),mask.to(self.local_rank),label.to(self.local_rank)
+            optimizer.zero_grad()
+            with torch.autocast(device_type='cuda'):
+                output=self.model(input,mask)
+                loss=nn.functional.cross_entropy(output,label,reduction='sum')
+            loss.backward()
+            optimizer.step()
+            self.train_acc.update(output,label)
+            fsdp_loss[0]+=loss.item()
+            fsdp_loss[1]+=len(input)
+        dist.all_reduce(fsdp_loss,op=dist.ReduceOp.SUM)
+        train_loss=fsdp_loss[0]/fsdp_loss[1]
+        self.train_acc_array[epoch]=self.train_acc.compute().item()
+        self.train_loss_array[epoch]=train_loss
+        if self.global_rank==0:
+            print(f'TRAIN EPOCH {epoch} \t LOSS: {fsdp_loss[0]/fsdp_loss[1]:.4f}')
+
+        # Run on the validation set, for on the fly validation.
+        self.model.eval()
+        self.val_acc.reset()
+        val_loss=0.0
+        for input,mask,target in self.val_loader:
+            input,mask,target=input.to(self.local_rank),mask.to(self.local_rank),target.to(self.local_rank)
+            output=self.model(input,mask)
+            loss=nn.functional.cross_entropy(output,target)
+            self.val_acc.update(output,target)
+            val_loss+=loss.item()
+        
+        # Save validation accuracy 
+        self.val_acc_array[epoch]=self.val_acc.compute().item()
+        self.val_loss_array[epoch]=val_loss/len(self.val_loader)
+        print(f"{'-'*90}\n [GPU{self.global_rank}] Epoch {epoch+1:2d} \
+              | Batchsize: {self.const['batch_size']} | Steps : {len(self.train_loader)} \
+                LR :{self.optimizer.param_groups[0]['lr']:.2f}, \
+                Train_Loss: {loss/len(self.train_loader):.2f}\
+                Val_Loss: {val_loss/len(self.val_loader):.2f}\
+                Training_Acc: {100*self.train_acc.compute().item():.2f}% \
+                Val_Acc: {100*self.val_acc.compute().item():.2f}",flush=True)
+
+    def train(self):
+        print(f"FSDP training started... memory {torch.cuda.memory_reserved()/int(1e9)}GB reserved")
+        t0=time.time()
+        for epoch in range (self.total_epochs):
+            print(f"epoch {epoch} started...")
+            self.train_sampler.set_epoch(epoch)
+            self.val_sampler.set_epoch(epoch)
+            self.run_epoch(optimizer=self.optimizer,
+                           epoch=epoch)
+            
+            # Model saving checkpoint
+            if epoch==0: 
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
+            if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
+                self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
+            if epoch%self.const["save_every"]==0:
+                self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
+            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
+            
+            if self.global_rank==0:
+                print(f"-->epoch {epoch+1} completed... entering save and stats zone")
+                self.mem_alloc_tracker.append(torch.cuda.memory_allocated()/int(1e9))
+                self.mem_reserved_tracker.append(torch.cuda.memory_reserved()/int(1e9))
+        t1=time.time()
+        self.runtime=t1-t0
+        self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
+        if self.global_rank==0:
+            print("TRAINING DONE ...")
+            print(self.mem_reserved_tracker)
+    
+    def test(self):
+        self.model.module.load_state_dict(torch.load(self.best_model_path))
+        self.model.eval()
+        y_true=[]
+        y_pred=[]
+        with torch.no_grad():
+            for input,mask,target in self.test_loader:
+                input,mask,target=input.to(self.local_rank),mask.to(self.local_rank),target.to(self.local_rank)
+                output=self.model(input,mask)
+                pred=torch.argmax(output,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(target.tolist())
+                self.test_acc.update(output,target)
+        print(f"[GPU{self.local_rank}] \
+              Test Acc: {100 * self.test_acc.compute().item():.4f}%")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
 
 class Trainer_multinode(TrainerDDP):
     """
@@ -477,7 +694,7 @@ class Trainer_multinode(TrainerDDP):
                 y_true.extend(tgt.tolist())
                 self.test_acc.update(out,tgt)
 
-        print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
+        print(f"[GPU{self.global_rank} Test Acc : {100*self.test_acc.compute().item():4f}%]")
         result=classification_report(y_true,y_pred)
         print(result)
         if self.num_class==2:
