@@ -67,20 +67,18 @@ class peft():
 
     :param checkpoint: (str) model's checkpoint. Example ``bert-base-uncased``
     """
-    def __init__(self,checkpoint:str):
+    def __init__(self,checkpoint:str,load_in_4bit=True):
         def create_quantization_config():
-            #"""
-            #Quantization Config Generator
-            #This function will create a confuguration for 4-bit quantization.
-            #"""
-            bnb_config=BitsAndBytesConfig(
-                load_in_4bit=True, bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type='fp4',
-                bnb_4bit_compute_dtype=torch.bfloat16)
+            if load_in_4bit:    
+                bnb_config=BitsAndBytesConfig(
+                    load_in_4bit=load_in_4bit,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type='fp4',
+                    bnb_4bit_compute_dtype=torch.bfloat16)
             return bnb_config
         self.checkpoint=checkpoint
         self.model=AutoModel.from_pretrained(checkpoint,
-                                             quantization_config=create_quantization_config())
+                                quantization_config=create_quantization_config())
         self.tokenizer=AutoTokenizer.from_pretrained(checkpoint)
         self.tokenizer.pad_token=self.tokenizer.eos_token
         self.model.resize_token_embeddings(len(self.tokenizer))

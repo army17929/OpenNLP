@@ -211,7 +211,7 @@ class TrainerSingle:
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch % self.const['save_every']==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
-            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
+            print(f"MEMORY RESERVED - Epoch {epoch+1} : {torch.cuda.memory_reserved()/int(1e9)}GB")
         end=time.time()
         runtime=end-start
         print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
@@ -319,7 +319,7 @@ class TrainerDDP(TrainerSingle):
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
-            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
+            print(f"MEMORY RESERVED - Epoch {epoch+1} : {torch.cuda.memory_reserved()/int(1e9)}GB")
         end=time.time()
         runtime=end-start
         print(f"RUNTIME of process{self.gpu_id} / {self.const['model_name']} : {end-start:2f} sec")
@@ -367,8 +367,11 @@ class TrainerFSDP() :
                lr:float,epochs:int,
                min_num_params=int(1e2),
                cpu_offload=False,
-               full_shard=True,mixed_precision=None):
-        
+               full_shard=True,
+               mixed_precision=False):
+        """
+        FSDP class could be run by torchrun.
+        """
         torch.cuda.empty_cache()
         self.num_class=num_class
         self.total_epochs=epochs
@@ -377,11 +380,16 @@ class TrainerFSDP() :
         self.testset=testset
         self.valset=valset
 
+        """
+        If the user uses torchrun, local rank and global rank will be 
+        specified from the environment variable.
+        """
         self.local_rank=int(os.environ['LOCAL_RANK'])
-        #torch.cuda.set_device(self.local_rank)
+        torch.cuda.set_device(self.local_rank)
         print(f"DEVICE SET TO {self.local_rank}")
         self.global_rank=int(os.environ['RANK'])
         print(f"global rank : {self.global_rank}")
+        self.world_size=world_size
 
         # For training metrics
         self.train_acc=torchmetrics.Accuracy(
@@ -403,6 +411,7 @@ class TrainerFSDP() :
         self.mem_alloc_tracker=[]
         self.mem_reserved_tracker=[]
         self.kwargs={}
+
         if cpu_offload:
             self.kwargs.update(cpu_offload=CPUOffload(offload_params=True))
         if not full_shard:
@@ -420,11 +429,12 @@ class TrainerFSDP() :
         print('model FSDP wrapped.. \n',self.model)
         if cpu_offload==False:
             self.model=self.model.to(self.local_rank)
-        self.optimizer=bnb.optim.Adam8bit(self.model.parameters(),lr=lr)
-        self.world_size=world_size
+
+        self.optimizer=torch.optim.Adam(self.model.parameters(),lr=lr)
         self.runtime=0
         self.n_params=sum(p.numel() for p in model.parameters()) # Total parameters
         self.cpu_offload=cpu_offload # CPU offload option
+        self.mixed_precision=mixed_precision
         self.min_num_params=min_num_params # Minimum parameter to wrap the model with FSDP
         print(f"NUMBER OF TOTAL PARAMETER : {self.n_params} \n \
               ESTIMATED MODEL SHARD PER DEVICE (FP32) : {4*self.n_params/self.world_size/int(1e9)} GB \n")
@@ -454,11 +464,21 @@ class TrainerFSDP() :
         self.model.train()
         self.train_acc.reset()
         print(f"current local rank {self.local_rank}, global_rank {self.global_rank}")
-        fsdp_loss=torch.zeros(2).to(self.local_rank)
+        if self.cpu_offload==True:
+            fsdp_loss=torch.zeros(2)
+        else:
+            fsdp_loss=torch.zeros(2).to(self.local_rank)
         for input,mask,label in self.train_loader:
             input,mask,label=input.to(self.local_rank),mask.to(self.local_rank),label.to(self.local_rank)
             optimizer.zero_grad()
-            with torch.autocast(device_type='cuda'):
+            if self.mixed_precision:
+                """
+                If user want to use mixed precision method with bfloat16,
+                """
+                with torch.autocast(device_type='cuda'):
+                    output=self.model
+                    loss=nn.functional.cross_entropy(output,label,reduction='sum')
+            else:
                 output=self.model(input,mask)
                 loss=nn.functional.cross_entropy(output,label,reduction='sum')
             loss.backward()
@@ -467,6 +487,7 @@ class TrainerFSDP() :
             fsdp_loss[0]+=loss.item()
             fsdp_loss[1]+=len(input)
         dist.all_reduce(fsdp_loss,op=dist.ReduceOp.SUM)
+        torch.cuda.empty_cache()
         train_loss=fsdp_loss[0]/fsdp_loss[1]
         self.train_acc_array[epoch]=self.train_acc.compute().item()
         self.train_loss_array[epoch]=train_loss
@@ -499,7 +520,6 @@ class TrainerFSDP() :
         print(f"FSDP training started... memory {torch.cuda.memory_reserved()/int(1e9)}GB reserved")
         t0=time.time()
         for epoch in range (self.total_epochs):
-            print(f"epoch {epoch} started...")
             self.train_sampler.set_epoch(epoch)
             self.val_sampler.set_epoch(epoch)
             self.run_epoch(optimizer=self.optimizer,
@@ -512,7 +532,7 @@ class TrainerFSDP() :
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
-            print(f"MEMORY RESERVED - Epoch {epoch} : {torch.cuda.memory_reserved()}")
+            print(f"MEMORY RESERVED - Epoch {epoch+1} : {torch.cuda.memory_reserved()/int(1e9)}GB")
             
             if self.global_rank==0:
                 print(f"-->epoch {epoch+1} completed... entering save and stats zone")
