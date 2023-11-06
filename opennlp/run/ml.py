@@ -4,6 +4,7 @@ from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier,AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB 
+from sklearn.metrics import classification_report
 import re
 import nltk 
 nltk.download('punkt',quiet=True)
@@ -85,6 +86,9 @@ class ClassicalML():
         print(f"Random forest runtime : {runtime}")
         # Prediction
         y_pred = model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class ==2 : # If the problem is binary classification, 
             binary_metrics_generator(y_true=self.y_test,
                           y_pred=y_pred,
@@ -112,6 +116,9 @@ class ClassicalML():
         print(f"Decision Tree runtime : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class==2 :
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/DecisionTree",
@@ -140,8 +147,10 @@ class ClassicalML():
         end=time.time()
         runtime=end-start
         print(f"MNB runtime : {runtime}")
-
         y_pred=model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/MNB",
@@ -171,6 +180,9 @@ class ClassicalML():
         print(f"GradBoost runtime : {runtime}")
 
         y_pred=model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/GradBoost_estimator{n_estimators}",
@@ -203,6 +215,9 @@ class ClassicalML():
         runtime=end-start
         print(f"Adaboost runtime : {runtime}")
         y_pred=model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                         save_dir=f"/AdaBoost_estimator{n_estimators}",
@@ -225,6 +240,9 @@ class ClassicalML():
         print(f"SVC runtime : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
+        report=classification_report(y_true=self.y_test,y_pred=y_pred)
+        print("=======classification report=======")
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
                     save_dir=f"/LinearSVC",
