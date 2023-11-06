@@ -357,6 +357,8 @@ class TrainerDDP(TrainerSingle):
                 pred=torch.argmax(out,dim=1)
                 y_pred.extend(pred.tolist())
                 y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
                 self.test_acc.update(out,tgt)
 
         print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
