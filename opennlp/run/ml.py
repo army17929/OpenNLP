@@ -83,7 +83,7 @@ class ClassicalML():
         model.fit(self.X_train, self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"Random forest runtime : {runtime}")
+        print(f"Random forest runtime : {runtime:.2f}sec")
         # Prediction
         y_pred = model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
@@ -113,7 +113,7 @@ class ClassicalML():
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"Decision Tree runtime : {runtime}")
+        print(f"Decision Tree runtime : {runtime:.2f}sec")
         # Prediction 
         y_pred=model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
@@ -146,7 +146,7 @@ class ClassicalML():
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"MNB runtime : {runtime}")
+        print(f"MNB runtime : {runtime:.2f}sec")
         y_pred=model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
         print("=======classification report=======")
@@ -177,7 +177,7 @@ class ClassicalML():
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"GradBoost runtime : {runtime}")
+        print(f"GradBoost runtime : {runtime:.2f}sec")
 
         y_pred=model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
@@ -213,7 +213,7 @@ class ClassicalML():
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"Adaboost runtime : {runtime}")
+        print(f"Adaboost runtime : {runtime:.2f}sec")
         y_pred=model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
         print("=======classification report=======")
@@ -237,7 +237,7 @@ class ClassicalML():
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"SVC runtime : {runtime}")
+        print(f"SVC runtime : {runtime:.2f}sec")
         # Prediction 
         y_pred=model.predict(self.X_test)
         report=classification_report(y_true=self.y_test,y_pred=y_pred)
