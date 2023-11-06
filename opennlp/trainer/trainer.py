@@ -64,13 +64,13 @@ class TrainerSingle:
         # binary classification
         if self.num_class==2:
             self.train_acc=torchmetrics.Accuracy(
-                task="multiclass",num_classes=self.num_class,average="micro"
+                task="binary",num_classes=self.num_class,average="micro"
             ).to(self.gpu_id)
             self.val_acc=torchmetrics.Accuracy(
-            task="multiclass",num_classes=self.num_class,average="micro"
+                task="binary",num_classes=self.num_class,average="micro"
             ).to(self.gpu_id)
             self.test_acc=torchmetrics.Accuracy(
-                task="multiclass",num_classes=self.num_class,average="micro"
+                task="binary",num_classes=self.num_class,average="micro"
             ).to(self.gpu_id)
         # Multiclass classification
         else:
@@ -102,17 +102,25 @@ class TrainerSingle:
         valloader=DataLoader(self.valset,batch_size=self.batch_size,shuffle=False,num_workers=1)
         return trainloader,testloader,valloader
 
-    def _run_batch(self,src:list,tgt:Tensor)->float:
+    def _run_batch_training(self,src:list,tgt:Tensor)->float:
         # Running each batch
         self.optimizer.zero_grad() 
-        #with torch.autocast(device_type="cuda",dtype=torch.bfloat16):
         out=self.model(src[0],src[1])
         loss=self.criterion(out,tgt)
-        # loss.register_hook(lambda grad: print(grad.dtype))
         loss.backward()
         self.optimizer.step()
-        # print(self.optimizer.state_dict()['state'][0])
+        if self.num_class==2: # If it is binary classification problem
+            out=torch.argmax(out,dim=1)
         self.train_acc.update(out,tgt)
+        self.train_acc.compute()
+        return loss.item()
+
+    def _run_batch_validation(self,src:list,tgt:Tensor)->float:
+        # Running each batch
+        out=self.model(src[0],src[1])
+        loss=self.criterion(out,tgt)
+        if self.num_class==2: # Binary classification
+            out=torch.argmax(out,dim=1)
         self.val_acc.update(out,tgt)
         return loss.item()
     
@@ -122,12 +130,14 @@ class TrainerSingle:
         loss=0.0
         val_loss=0.0
         self.train_acc.reset()
+        self.val_acc.reset()
+        print("TRAINING...")
         for input,mask,tgt in self.trainloader:
             input=input.to(self.gpu_id)
             mask=mask.to(self.gpu_id)
             tgt=tgt.to(self.gpu_id)
             src=[input,mask] 
-            loss_batch=self._run_batch(src,tgt)
+            loss_batch=self._run_batch_training(src,tgt)
             loss+=loss_batch
         self.lr_scheduler.step()
         self.train_acc_array[epoch]=self.train_acc.compute().item()
@@ -136,13 +146,16 @@ class TrainerSingle:
         # Run on the validation set
         self.model.eval()
         self.val_acc.reset()
-        for input,mask,tgt in self.valloader:
-            input=input.to(self.gpu_id)
-            mask=mask.to(self.gpu_id)
-            tgt=tgt.to(self.gpu_id)
-            src=[input,mask] 
-            loss_batch_val=self._run_batch(src,tgt)
-            val_loss+=loss_batch_val
+        print("Val acc reset...")
+        print("VALIDATION...")
+        with torch.no_grad():
+            for input,mask,tgt in self.valloader:
+                input=input.to(self.gpu_id)
+                mask=mask.to(self.gpu_id)
+                tgt=tgt.to(self.gpu_id)
+                src=[input,mask] 
+                loss_batch_val=self._run_batch_validation(src,tgt)
+                val_loss+=loss_batch_val
         self.lr_scheduler.step()
         
         # Save validation acc
@@ -215,8 +228,6 @@ class TrainerSingle:
         end=time.time()
         runtime=end-start
         print(f"TRAINING RUNTIME of {self.const['model_name']} : {end-start:2f} sec")
-        #self._save_checkpoint(epoch=max_epochs-1,model_name=f"last_{self.const['model_name']}") # save the last epoch
-        #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         self.runtime=runtime
 
@@ -236,6 +247,8 @@ class TrainerSingle:
                 pred=torch.argmax(out,dim=1)
                 y_pred.extend(pred.tolist())
                 y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
                 self.test_acc.update(out,tgt)
         print(f"[GPU{self.gpu_id}] \
               Test Acc: {100 * self.test_acc.compute().item():.4f}%")
@@ -416,7 +429,7 @@ class TrainerFSDP() :
             self.kwargs.update(cpu_offload=CPUOffload(offload_params=True))
         if not full_shard:
             self.kwargs.update(sharding_strategy=ShardingStrategy.SHARD_GRAD_OP)
-        if mixed_precision:
+        if mixed_precision==True:
             self.kwargs.update(mixed_precision=MixedPrecision(param_dtype=torch.bfloat16,
                                                                 # Gradient communication precision.
                                                                 reduce_dtype=torch.bfloat16,
@@ -430,7 +443,7 @@ class TrainerFSDP() :
         if cpu_offload==False:
             self.model=self.model.to(self.local_rank)
 
-        self.optimizer=torch.optim.Adam(self.model.parameters(),lr=lr)
+        self.optimizer=torch.optim.Adam(self.model.module.parameters(),lr=lr)
         self.runtime=0
         self.n_params=sum(p.numel() for p in model.parameters()) # Total parameters
         self.cpu_offload=cpu_offload # CPU offload option
@@ -448,45 +461,60 @@ class TrainerFSDP() :
         sampler_val=DistributedSampler(self.valset)
         trainloader=DataLoader(self.trainset,batch_size=self.const['batch_size'],
                             shuffle=False,sampler=sampler_train,
-                            num_workers=2)
+                            num_workers=0)
         testloader=DataLoader(self.testset,batch_size=self.const['batch_size'])
         valloader=DataLoader(self.valset,batch_size=self.const['batch_size'],
                             shuffle=False,sampler=DistributedSampler(self.valset,shuffle=False),
-                            num_workers=2)
+                            num_workers=0)
         return trainloader,testloader,valloader,sampler_train,sampler_val
 
+    def _save_model_fsdp(self,epoch:int,model_name:str):
+        full_state_policy=FullStateDictConfig(offload_to_cpu=True,
+                                              rank0_only=True)
+        with FSDP.state_dict_type(
+            self.model,StateDictType.FULL_STATE_DICT,full_state_policy
+        ):
+            model_state=self.model.state_dict()
+        if self.global_rank==0:
+            model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
+            torch.save(model_state,model_path)
+
     def _save_checkpoint(self,epoch:int,model_name:str):
+        dist.barrier()
         checkpoint=self.model.module.state_dict()
         model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
         torch.save(checkpoint,model_path)
 
-    def run_epoch(self,optimizer,epoch):
+    def run_epoch(self,epoch):
         self.model.train()
+        print(self.model)
         self.train_acc.reset()
+        print(f"Starting epoch {epoch}")
         print(f"current local rank {self.local_rank}, global_rank {self.global_rank}")
         if self.cpu_offload==True:
             fsdp_loss=torch.zeros(2)
         else:
             fsdp_loss=torch.zeros(2).to(self.local_rank)
+        i=0
         for input,mask,label in self.train_loader:
+            i+=1
             input,mask,label=input.to(self.local_rank),mask.to(self.local_rank),label.to(self.local_rank)
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
+            
             if self.mixed_precision:
-                """
-                If user want to use mixed precision method with bfloat16,
-                """
-                with torch.autocast(device_type='cuda'):
-                    output=self.model
+                print('Mixed precision computation region')
+                with torch.autocast(device_type='cuda',dtype=torch.bfloat16):
+                    output=self.model(input,mask)
                     loss=nn.functional.cross_entropy(output,label,reduction='sum')
             else:
                 output=self.model(input,mask)
                 loss=nn.functional.cross_entropy(output,label,reduction='sum')
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
             self.train_acc.update(output,label)
             fsdp_loss[0]+=loss.item()
             fsdp_loss[1]+=len(input)
-        dist.all_reduce(fsdp_loss,op=dist.ReduceOp.SUM)
+        dist.all_reduce(fsdp_loss.half(),op=dist.ReduceOp.SUM)
         torch.cuda.empty_cache()
         train_loss=fsdp_loss[0]/fsdp_loss[1]
         self.train_acc_array[epoch]=self.train_acc.compute().item()
@@ -500,8 +528,13 @@ class TrainerFSDP() :
         val_loss=0.0
         for input,mask,target in self.val_loader:
             input,mask,target=input.to(self.local_rank),mask.to(self.local_rank),target.to(self.local_rank)
-            output=self.model(input,mask)
-            loss=nn.functional.cross_entropy(output,target)
+            if self.mixed_precision:
+                with torch.autocast(device_type='cuda',dtype=torch.bfloat16):
+                    output=self.model(input,mask)
+                    loss=nn.functional.cross_entropy(output,target)
+            else:
+                output=self.model(input,mask)
+                loss=nn.functional.cross_entropy(output,target)
             self.val_acc.update(output,target)
             val_loss+=loss.item()
         
@@ -511,30 +544,61 @@ class TrainerFSDP() :
         print(f"{'-'*90}\n [GPU{self.global_rank}] Epoch {epoch+1:2d} \
               | Batchsize: {self.const['batch_size']} | Steps : {len(self.train_loader)} \
                 LR :{self.optimizer.param_groups[0]['lr']:.2f}, \
-                Train_Loss: {loss/len(self.train_loader):.2f}\
+                Train_Loss: {train_loss/len(self.train_loader):.2f}\
                 Val_Loss: {val_loss/len(self.val_loader):.2f}\
                 Training_Acc: {100*self.train_acc.compute().item():.2f}% \
                 Val_Acc: {100*self.val_acc.compute().item():.2f}",flush=True)
+
+        if self.global_rank==0 :
+            if epoch==self.const['total_epochs']-1 : # Save the loss and acc plot at the last epoch
+                # Loss plot
+                plt.clf() # Initialize the plot
+                plt.figure(figsize=(14,10))
+                plt.subplot(1,2,1)
+                plt.subplots_adjust(wspace=0.2)
+                plt.plot(np.arange(1,self.const['total_epochs']+1),
+                        self.train_loss_array,label='Train Loss')
+                plt.plot(np.arange(1,self.const['total_epochs']+1),
+                        self.val_loss_array,label='Val Loss')
+                plt.xlabel('Epoch')
+                plt.title(f"Train & Val Loss - {self.const['model_name']}")
+                plt.legend()
+                plt.grid()
+                # Accuracy plot
+                plt.subplot(1,2,2)
+                plt.plot(np.arange(1,self.const['total_epochs']+1),
+                        self.train_acc_array,label='Train Acc')
+                plt.plot(np.arange(1,self.const['total_epochs']+1),
+                        self.val_acc_array,label='Val Acc')
+                plt.xlabel('Epoch')
+                plt.title(f"Train & Val Acc -  {self.const['model_name']}")
+                plt.legend()
+                plt.grid()
+                save_dir=f"./Results/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu"
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir,exist_ok=True)
+                plt.savefig(f"{save_dir}/Trainingplot_{self.const['model_name']}_epoch_{self.const['total_epochs']}_bs_{self.const['batch_size']}.png")
 
     def train(self):
         print(f"FSDP training started... memory {torch.cuda.memory_reserved()/int(1e9)}GB reserved")
         t0=time.time()
         for epoch in range (self.total_epochs):
+            print(f"epoch {epoch} initiating...")
+            torch.cuda.empty_cache()
             self.train_sampler.set_epoch(epoch)
             self.val_sampler.set_epoch(epoch)
-            self.run_epoch(optimizer=self.optimizer,
-                           epoch=epoch)
+            self.run_epoch(epoch=epoch)
             
             # Model saving checkpoint
             if epoch==0: 
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
-            if self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
+            elif self.val_acc_array[epoch]>self.val_acc_array[epoch-1]:
                 self._save_checkpoint(epoch,model_name=f"best_{self.const['model_name']}")
             if epoch%self.const["save_every"]==0:
                 self._save_checkpoint(epoch,model_name=f"{self.const['model_name']}")
             print(f"MEMORY RESERVED - Epoch {epoch+1} : {torch.cuda.memory_reserved()/int(1e9)}GB")
             
-            if self.global_rank==0:
+            if self.local_rank==0:
                 print(f"-->epoch {epoch+1} completed... entering save and stats zone")
                 self.mem_alloc_tracker.append(torch.cuda.memory_allocated()/int(1e9))
                 self.mem_reserved_tracker.append(torch.cuda.memory_reserved()/int(1e9))
@@ -544,10 +608,41 @@ class TrainerFSDP() :
         if self.global_rank==0:
             print("TRAINING DONE ...")
             print(self.mem_reserved_tracker)
+        torch.cuda.empty_cache()
     
     def test(self):
-        self.model.module.load_state_dict(torch.load(self.best_model_path))
+        self.model.module.load_state_dict(torch.load(self.best_model_path,map_location='cpu'))
+        print('TEST MODEL',self.model)
         self.model.eval()
+        self.model.to(self.local_rank)
+        y_true=[]
+        y_pred=[]
+        with torch.no_grad():
+            for input,mask,target in self.test_loader:
+                input,mask,target=input.to(self.local_rank),mask.to(self.local_rank),target.to(self.local_rank)
+                output=self.model(input,mask)
+                pred=torch.argmax(output,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(target.tolist())
+                self.test_acc.update(output,target)
+        print(f"[GPU{self.local_rank}] \
+              Test Acc: {100 * self.test_acc.compute().item():.4f}%")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                     save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                     model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+    def inference(self,path):
+        self.model.module.load_state_dict(torch.load(path,map_location='cpu'))
+        print('TEST MODEL',self.model)
+        self.model.eval()
+        self.model.to(self.local_rank)
         y_true=[]
         y_pred=[]
         with torch.no_grad():
@@ -633,7 +728,7 @@ class Trainer_multinode(TrainerDDP):
     def _save_checkpoint(self,epoch:int,model_name:str):
         checkpoint=self.model.module.state_dict()
         model_path=self.const["trained_models"]/f"{model_name}_epoch{epoch+1}.pt"
-        torch.save(checkpoint,model_path)
+        torch.save(checkpoint,model_path)    
 
     def _run_epoch(self,epoch:int):
         # Running each epoch
@@ -725,6 +820,23 @@ class Trainer_multinode(TrainerDDP):
             metrics_generator(y_true=y_true,y_pred=y_pred,
                         save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
                         model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+
+def load_model_from_checkpoint(model,path):
+    model_ckp=torch.load(path)
+    model.load_state_dict(model_ckp)
+    return model 
+
+def load_checkpoint_fsdp(model,path):
+    """
+    This function assumes that the user save their .pt file
+    in Full_state_dict. With .pt file path and the model, you can load
+    the model and train from the checkpoint.
+    Note that input ``model`` is FSDP wrapped module.
+    """
+    model_ckp=torch.load(path)
+    model.module.load_state_dict(model_ckp)
+    return model
 
 def PlotTraining(history,savedir:str,model_name:str):
     # This function will generate training and validation plots, and save it in ``savedir`` 
