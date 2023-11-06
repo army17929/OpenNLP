@@ -72,11 +72,17 @@ class ClassicalML():
         #:param n_estimators: (int) number of decision tree regressors
         #"""
         model = RandomForestClassifier(n_estimators=n_estimators)  # You can adjust the number of estimators as needed
+        print("=========MODEL SUMMARY=========")
+        print("===============================")
+        print(f"Random Forest")
+        print(f"Number of Estimators : {n_estimators}")
+        print("===============================")
+        print("Running random forest...")
         start=time.time()
         model.fit(self.X_train, self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"Random forest runtime : {runtime}")
         # Prediction
         y_pred = model.predict(self.X_test)
         if self.num_class ==2 : # If the problem is binary classification, 
@@ -98,11 +104,12 @@ class ClassicalML():
         #""" 
         model=DecisionTreeClassifier(criterion='entropy',
                                     splitter='best')
+        print("Running Decision tree...")
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"Decision Tree runtime : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
         if self.num_class==2 :
@@ -122,11 +129,17 @@ class ClassicalML():
         #:param alpha: (float) Additive smoothing parameter (set alpha=0 for no smoothing)
         #"""
         model=MultinomialNB(alpha=alpha)
+        print("=========MODEL SUMMARY=========")
+        print("===============================")
+        print(f"Multinomial Naive Bayes model")
+        print(f"Smoothing Factor : {alpha}")
+        print("===============================")
+        print("Running MNB...")
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"MNB runtime : {runtime}")
 
         y_pred=model.predict(self.X_test)
         if self.num_class==2:
@@ -145,11 +158,17 @@ class ClassicalML():
         :param n_estimator: (int) The number of boosting stages to perform. Values must be in the range ``[1,inf)``
         """
         model=GradientBoostingClassifier(n_estimators=n_estimators)
+        print("=========MODEL SUMMARY=========")
+        print("===============================")
+        print(f"Gradient Boosting Classifier")
+        print(f"Number of Estimators : {n_estimators}")
+        print("===============================")
+        print("Running Grad Boost...")
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"GradBoost runtime : {runtime}")
 
         y_pred=model.predict(self.X_test)
         if self.num_class==2:
@@ -172,11 +191,17 @@ class ClassicalML():
         :param n_estimators: (int) The maximum number of estimators at which boosting is terminated.
         """
         model=AdaBoostClassifier(n_estimators=n_estimators)
+        print("=========MODEL SUMMARY=========")
+        print("===============================")
+        print(f"AdaBoost Classifier")
+        print(f"Number of Estimators : {n_estimators}")
+        print("===============================")
+        print("Running Adaboost...")
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"Adaboost runtime : {runtime}")
         y_pred=model.predict(self.X_test)
         if self.num_class==2:
             binary_metrics_generator(y_true=self.y_test,y_pred=y_pred,
@@ -192,11 +217,12 @@ class ClassicalML():
         #This function runs Linear Support Vector Classifier for sentiment classification.
         #"""
         model=SVC(kernel='linear')
+        print("Running Linear SVC...")
         start=time.time()
         model.fit(self.X_train,self.y_train)
         end=time.time()
         runtime=end-start
-        print(f"RUNTIME : {runtime}")
+        print(f"SVC runtime : {runtime}")
         # Prediction 
         y_pred=model.predict(self.X_test)
         if self.num_class==2:
