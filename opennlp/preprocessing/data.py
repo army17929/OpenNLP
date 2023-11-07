@@ -34,26 +34,6 @@ class data_processor():
         self.df[self.output_col]=self.df[self.output_col].replace('Negative',2)
         return self.df
 
-    def data_analyzer(self,output_col:str,savedir:str,filename:str):
-        #"""
-        #Data analyzer 
-        #This function will analyze the distribution of the data. 
-        #Analyzed bar chart and pie chart will be saved in ``savedir``
-        #"""
-        count=self.df[output_col].value_counts()
-        print(count)
-        plt.clf()
-        plt.figure(figsize=(12,10))
-        plt.subplot(1,2,1)
-        plt.title('Class Distribution - Bar')
-        plt.bar(height=count,x=["Negative","Positive","Neutral"])
-        plt.subplot(1,2,2)
-        plt.title('Class Distribution - Pie')
-        plt.pie(x=count,labels=["Negative","Positive","Neutral"],autopct='%1.1f%%')
-        if not os.path.exists(savedir):
-            os.makedirs(savedir)
-        plt.savefig(savedir+'/'+filename)
-
     def prepare_dataset(self,checkpoint,max_length=128, 
                         test_size=0.2,val_size=0.1,seed=42):
         #"""
@@ -204,6 +184,69 @@ class data_processor():
 
         return train_dataset,test_dataset,val_dataset
 
+class data_postprocessor():
+    def __init__(self,data_path,encoding='utf-8'):
+        self.path=data_path
+        self.df=pd.read_csv(self.path,encoding=encoding)
+    
+    def sort(self,
+             column:str,
+             ascending=True,
+             save=True,
+             output_path=f'./data_dist',
+             filename='sorted.csv',
+             top_5=False,
+             bottom_5=False):
+        """
+        This function will sort tweets from higher values to lower values.
+        For example, users can use this function for sorting the tweets based on the standard deviation or mean. 
+        Higher standard deviation basically means that the libraries got confused.
+        By default, this function will sort the data with ascending manner.
+        """
+        print(f"sorting data by {column} column...")
+        self.df=self.df.sort_values(by=column,ascending=ascending)
+        top_data=self.df[self.df[column]>=self.df[column].quantile(0.95)]
+        bottom_data=self.df[self.df[column]>=self.df[column].quantile(0.05)]
+        if top_5:
+            top_data.to_csv(f'{output_path}/top5.csv')
+            print(f"Saved bottom 5% data as top_5.csv")
+        if bottom_5:
+            bottom_data.to_csv(f'{output_path}/bottom_5.csv')
+            print(f"Saved bottom 5% data as bottom_5.csv")
+        if save:
+            self.df.to_csv(f'{output_path}/{filename}')
+            print(f"Saved file as {output_path}")
+        else:
+            return self.df
+
+    def data_analyzer(self,output_col:str,savedir:str,filename:str):
+        #"""
+        #Data analyzer 
+        #This function will analyze the distribution of the data. 
+        #Analyzed bar chart and pie chart will be saved in ``savedir``
+        #"""
+        # First we need to filter the data
+        sentiment=["Positive","Negative","Neutral"]
+        self.df=self.df[self.df[output_col].isin(sentiment)]
+        count=self.df[output_col].value_counts()
+        print(count)
+        plt.clf()
+        plt.figure(figsize=(12,10))
+        plt.subplot(1,2,1)
+        plt.title('Class Distribution - Bar')
+        plt.bar(height=count,x=["Negative","Positive","Neutral"])
+        plt.subplot(1,2,2)
+        plt.title('Class Distribution - Pie')
+        plt.pie(x=count,labels=["Negative","Positive","Neutral"],autopct='%1.1f%%')
+        if not os.path.exists(savedir):
+            os.makedirs(savedir)
+        plt.savefig(savedir+'/'+filename)
+    
+    def word_count(self,column):
+        self.df['wordcount']=self.df[column].apply(lambda x: len(x.split()))
+        print(f"Mean of word count : {self.df['wordcount'].mean()}")
+        print(f"Std of word count : {self.df['wordcount'].std()}")
+
 def load_preprocessed_nuclear_data():
     #"""
     #This is a temporary helper function that can directly load most frequently used data. 
@@ -216,3 +259,20 @@ def load_preprocessed_nuclear_data():
     df['FinalScore']=df['FinalScore'].replace('Negative',2)
     print('Nuclear data is loaded. This data contains tweets and label(int)')
     return df
+
+if __name__=="__main__":
+    post=data_postprocessor(data_path='./data/nuclear.csv')
+    post.word_count(column='tweets')
+    post.data_analyzer(output_col='FinalScore',
+                       savedir='./data_dist',
+                       filename='dist.png')
+    post.sort(column='mean',
+              output_path='./data_dist',
+              filename='sort_mean.csv',
+              top_5=True,
+              bottom_5=True)
+    post.sort(column='StandardDev',
+              output_path='./data_dist',
+              filename='sort_std.csv',
+              top_5=True,
+              bottom_5=True)
