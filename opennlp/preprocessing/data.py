@@ -16,173 +16,174 @@ class data_processor():
     :param output_col: (str) name of the column that contains output data
     :param encoding: (str) encoding type. Example: ``cp1252``
     """
-    def __init__(self,path:str,input_col:str,output_col:str,encoding='utf-8'):
-        self.path=path # Path of the data
-        self.df=pd.read_csv(path,encoding=encoding)
-        self.df=self.df[[input_col,output_col]]
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,
+                 output_col:str,
+                 encoding:str,
+                 path=None,
+                 train_filepath=None, # If user split is True,
+                 test_filepath=None,
+                 encoding_errors='ignore'):
+
         self.input_col=input_col
         self.output_col=output_col
-        self.X=self.df[input_col]
-        self.y=self.df[output_col]
-
-    def label_converter(self):
-        #"""
-        #This function will convert sentiment labels into integers. Neutral=0,Positive=1,Negative=2 
-        #"""
-        self.df[self.output_col]=self.df[self.output_col].replace('Neutral',0)
-        self.df[self.output_col]=self.df[self.output_col].replace('Positive',1)
-        self.df[self.output_col]=self.df[self.output_col].replace('Negative',2)
-        return self.df
-
-    def prepare_dataset(self,checkpoint,max_length=128, 
-                        test_size=0.2,val_size=0.1,seed=42):
-        #"""
-        #Dataset preparation function 
-        #This function will convert raw data into tensor dataset.
-        #Input: 
-        #    df : DataFrame type object
-        #    checkpoint : Tokenizer type you want to use for preprocessing. Example: ``gpt2``
-        #    max_length : maximum length of input text. Default=128
-        #    test_size : portion of test data
-        #    val_size : portion of validation data
-        #    seed : random seed for train and test split
-        #Return: 
-        #    - Tuple[TensorDataset,TensorDataset,TensorDataset]
-        #"""
-
-        tokenizer=AutoTokenizer.from_pretrained(checkpoint)
-        tokenizer.pad_token=tokenizer.eos_token
+        self.user_split=user_split
+        # If the user do not want to split the dataset themselves.
+        if not self.user_split:
+            self.path=path
+            self.df=pd.read_csv(path,
+                                encoding=encoding,
+                                encoding_errors=encoding_errors)
+        if self.user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      encoding=encoding,
+                                      encoding_errors=encoding_errors)
+            self.df_test=pd.read_csv(test_filepath,
+                                      encoding=encoding,
+                                      encoding_errors=encoding_errors)
         
-        X=self.df[self.input_col]
-        y=self.df[self.output_col]
+    def label_converter(self,df):
+        """
+        Note that in the final dataset we do not have the label with alphabet.
+        """
+        print(f"The unique labels in your dataset is {df[self.output_col].unique()}")
+        # If the data labels are not numerics,
+        if df[self.output_col].apply(lambda x:isinstance(x,str)).all():
+            print(f"Converting the string labels to integers...")
+            df[self.output_col]=df[self.output_col].replace('Positive',1)
+            df[self.output_col]=df[self.output_col].replace('Negative',2)
+            df[self.output_col]=df[self.output_col].replace('Neutral',0)
+            print(f"After conversion, the uniqie labels in your dataset is {df[self.output_col].unique()}")
+        if 'Positive' not in df[self.output_col].unique():
+            print('Labels are all integers... ')
+            print('Start detecting negative integers... ')
+            try:
+                df[self.output_col]=df[self.output_col].astype(int)
+                if min(df[self.output_col].unique())<0:
+                    print("Negative integers are detected...Converting...")
+                    df[self.output_col]=df[self.output_col].replace(-1,2)
+                else:
+                    print(f"Labels are converted...")
+                    print(f"The unique labels in your dataset is {df[self.output_col].unique()}")
+            except KeyError as e:
+                pass
+        return df
 
-        X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
-        X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
-        # Prepare for input_ids
-        # Make a list type object
-        X_train_text=[str(text) for text in X_train]
-        X_test_text=[str(text) for text in X_test]
-        X_val_text=[str(text) for text in X_val]
+    def prepare_dataset(self,
+                        checkpoint,
+                        max_length,
+                        test_size,
+                        val_size,
+                        seed):
+        if self.user_split:
+            self.df_train=self.label_converter(df=self.df_train)
+            self.df_test=self.label_converter(df=self.df_test)
+            # Refine the dataset columns
+            self.df_train=self.df_train[[self.input_col,self.output_col]]
+            self.df_test=self.df_test[[self.input_col,self.output_col]]
+        if not self.user_split:
+            self.df=self.label_converter(df=self.df)
+            self.df=self.df[[self.input_col,self.output_col]]
+        print(f"Dataset before processing...")
 
-        # Convert vocabs into tensors
+        # BERT need special tokenizer type 
+        if checkpoint=='bert-base-uncased':
+            tokenizer=AutoTokenizer.from_pretrained(checkpoint)
+            tokenizer.add_special_tokens({'pad_token':'[PAD]'})
+        else:
+            tokenizer=AutoTokenizer.from_pretrained(checkpoint)
+            tokenizer.pad_token=tokenizer.eos_token
         
-        X_train_tensor=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['input_ids'] 
-                                for text in X_train_text]
-        X_test_tensor=[tokenizer(str(text),return_tensors='pt',
-                            max_length=max_length,truncation=True,
-                            pad_to_max_length=True)['input_ids']
-                            for text in X_test_text]
-        X_val_tensor=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['input_ids'] 
-                                for text in X_val_text]
-
-        # Convert list to tensor. 
-        X_train_input=torch.squeeze(torch.stack(X_train_tensor),dim=1)
-        X_test_input=torch.squeeze(torch.stack(X_test_tensor),dim=1)
-        X_val_input=torch.squeeze(torch.stack(X_val_tensor),dim=1)
-
-        # Prepare for attention masks
-        X_train_mask=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['attention_mask']
-                                for text in X_train]
-        X_test_mask=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['attention_mask']
-                                for text in X_test]
-        X_val_mask=[tokenizer(str(text),return_tensors='pt',
-                              max_length=max_length,truncation=True,
-                              pad_to_max_length=True)['attention_mask']
-                              for text in X_val]
-
-        # Squeeze it
-        X_train_mask=torch.squeeze(torch.stack(X_train_mask),dim=1)
-        X_test_mask=torch.squeeze(torch.stack(X_test_mask),dim=1)
-        X_val_mask=torch.squeeze(torch.stack(X_val_mask),dim=1)
-
-        # Prepare for the label data
-        y_train=torch.tensor(y_train.tolist())
-        y_test=torch.tensor(y_test.tolist())
-        y_val=torch.tensor(y_val.tolist())
-
-        # Now, all the data is prepared.
-        train_dataset=TensorDataset(X_train_input,X_train_mask,y_train)
-        test_dataset=TensorDataset(X_test_input,X_test_mask,y_test)
-        val_dataset=TensorDataset(X_val_input,X_val_mask,y_val)
-
-        return train_dataset,test_dataset,val_dataset
-
-    def prepare_dataset_BERT(self,checkpoint,max_length=128,
-                             test_size=0.2,val_size=0.1,seed=42):
-        #"""
-        #Same function as above, but only for BERT
-        #"""
-        tokenizer=AutoTokenizer.from_pretrained(checkpoint)
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # This is for BERT
-        
-        X=self.df[self.input_col]
-        y=self.df[self.output_col]
-
-        X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=test_size,random_state=seed)
-        X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,test_size=val_size,random_state=seed)
-
-        # Make a list type object
+        if not self.user_split:
+            X=self.X
+            y=self.y
+            X_train,X_test,y_train,y_test=train_test_split(X,y,
+                                                        test_size=test_size,
+                                                        random_state=seed)
+            X_train,X_val,y_train,y_val=train_test_split(X_train,y_train,
+                                                        test_size=val_size,
+                                                        random_state=seed)
+        if self.user_split:
+            X_train=self.df_train[self.input_col]
+            y_train=self.df_train[self.output_col]
+            X_test=self.df_test[self.input_col]
+            y_test=self.df_test[self.output_col]
+            # Validation set
+            X_val=X_train.sample(n=int(len(X_train)*val_size),
+                                 random_state=seed)
+            y_val=y_train.sample(n=int(len(y_train)*val_size),
+                                 random_state=seed)
+            # Exclude the validation set.
+            X_train=X_train.drop(X_train.sample(n=int(len(X_train)*val_size),
+                                                random_state=seed).index)
+            y_train=y_train.drop(y_train.sample(n=int(len(y_train)*val_size),
+                                                random_state=seed).index)
+            print(f"====User custom dataset STAT====")
+            print(f"Training points :{X_train.shape[0]}")
+            print(f"Test points : {X_test.shape[0]}")
+            print(f"Validation points : {X_val.shape[0]}")
+            
+        # Prepare for the input ids
         X_train_text=[str(text) for text in X_train]
         X_test_text=[str(text) for text in X_test]
         X_val_text=[str(text) for text in X_val]
 
         # Convert vocabs into tensors
         X_train_tensor=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['input_ids'] 
+                                max_length=max_length,
+                                truncation=True,
+                                pad_to_max_length=True)['input_ids']
                                 for text in X_train_text]
         X_test_tensor=[tokenizer(str(text),return_tensors='pt',
-                            max_length=max_length,truncation=True,
-                            pad_to_max_length=True)['input_ids']
-                            for text in X_test_text]
+                                max_length=max_length,
+                                truncation=True,
+                                pad_to_max_length=True)['input_ids']
+                                for text in X_test_text]
         X_val_tensor=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
-                                pad_to_max_length=True)['input_ids'] 
+                                max_length=max_length,
+                                truncation=True,
+                                pad_to_max_length=True)['input_ids']
                                 for text in X_val_text]
 
-        # Convert list to tensor. 
+        # Convert list to tensor
         X_train_input=torch.squeeze(torch.stack(X_train_tensor),dim=1)
         X_test_input=torch.squeeze(torch.stack(X_test_tensor),dim=1)
         X_val_input=torch.squeeze(torch.stack(X_val_tensor),dim=1)
 
         # Prepare for attention masks
         X_train_mask=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
+                                max_length=max_length,
+                                truncation=True,
                                 pad_to_max_length=True)['attention_mask']
                                 for text in X_train]
         X_test_mask=[tokenizer(str(text),return_tensors='pt',
-                                max_length=max_length,truncation=True,
+                                max_length=max_length,
+                                truncation=True,
                                 pad_to_max_length=True)['attention_mask']
                                 for text in X_test]
         X_val_mask=[tokenizer(str(text),return_tensors='pt',
-                              max_length=max_length,truncation=True,
-                              pad_to_max_length=True)['attention_mask']
-                              for text in X_val]
-
-        # Squeeze it
+                                max_length=max_length,
+                                truncation=True,
+                                pad_to_max_length=True)['attention_mask']
+                                for text in X_val]     
+        # Squeeze
         X_train_mask=torch.squeeze(torch.stack(X_train_mask),dim=1)
         X_test_mask=torch.squeeze(torch.stack(X_test_mask),dim=1)
         X_val_mask=torch.squeeze(torch.stack(X_val_mask),dim=1)
 
-        # Prepare for the label data
+        # Prepare for the label data 
         y_train=torch.tensor(y_train.tolist())
         y_test=torch.tensor(y_test.tolist())
-        y_val=torch.tensor(y_val.tolist())
+        y_val=torch.tensor(y_val.tolist())  
 
-        # Now, all the data is prepared.
+        # Tensor dataset is ready to go 
         train_dataset=TensorDataset(X_train_input,X_train_mask,y_train)
         test_dataset=TensorDataset(X_test_input,X_test_mask,y_test)
-        val_dataset=TensorDataset(X_val_input,X_val_mask,y_val)
+        val_dataset=TensorDataset(X_val_input,X_val_mask,y_val) 
 
         return train_dataset,test_dataset,val_dataset
+
 
 class data_postprocessor():
     def __init__(self,data_path,encoding='utf-8'):
@@ -261,18 +262,4 @@ def load_preprocessed_nuclear_data():
     return df
 
 if __name__=="__main__":
-    post=data_postprocessor(data_path='./data/nuclear.csv')
-    post.word_count(column='tweets')
-    post.data_analyzer(output_col='FinalScore',
-                       savedir='./data_dist',
-                       filename='dist.png')
-    post.sort(column='mean',
-              output_path='./data_dist',
-              filename='sort_mean.csv',
-              top_5=True,
-              bottom_5=True)
-    post.sort(column='StandardDev',
-              output_path='./data_dist',
-              filename='sort_std.csv',
-              top_5=True,
-              bottom_5=True)
+    pass

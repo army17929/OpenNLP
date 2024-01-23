@@ -7,6 +7,7 @@ import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import shutil
+import time
 
 class Data_Mining():
     """
@@ -23,7 +24,14 @@ class Data_Mining():
         self.search_url=search_url
         #https://api.twitter.com/2/tweets/search/recent
 
-    def query(self,max_result:int,keyword:str,must_include:str):
+    def query(self,
+    max_result:int,
+    keyword:str,
+    must_include:str,
+    year:int,
+    month:int,
+    day:int,
+    duration:int):
         """
         Query Generation function 
 
@@ -31,15 +39,21 @@ class Data_Mining():
         :arg keyword: (str) keyword thay you want to include in query
         :arg must_include: (str) keyword that must be included in the response text.
         """
-        query = f'"{must_include}" {keyword} lang:en -is:retweet place_country:US'
+        # query = f'"{must_include}" {keyword} lang:en -is:retweet place_country:US'
+        query = f'{keyword} lang:en -is:retweet place_country:US'
+        print(f"query : {query}")
         query_params = {
             'query': query,
             'max_results' : max_result,
             'expansions' : 'attachments.poll_ids,attachments.media_keys,author_id,geo.place_id,in_reply_to_user_id,referenced_tweets.id,entities.mentions.username,referenced_tweets.id.author_id,edit_history_tweet_ids',
-            'tweet.fields': 'attachments,author_id,context_annotations,conversation_id,created_at,edit_controls,edit_history_tweet_ids,entities,geo,id,in_reply_to_user_id,lang,note_tweet,possibly_sensitive,source,text,withheld'
+            'tweet.fields': 'attachments,author_id,context_annotations,conversation_id,created_at,edit_controls,edit_history_tweet_ids,entities,geo,id,in_reply_to_user_id,lang,note_tweet,possibly_sensitive,source,text,withheld',
+            'start_time' : f'{year}-{month}-{day}T05:00:00Z',
+            'end_time' : f'{year}-{month}-{day+1}T04:59:59Z'
         }
         global KEYWORD
+        global MUST
         KEYWORD=keyword
+        MUST=must_include
         return query_params
     
     def get_location_info(self,tweet_id):
@@ -57,6 +71,8 @@ class Data_Mining():
                               headers=headers)
         if response.status_code==200:
             pass
+        elif response.status_code==429:
+            pass
         else:
             print(f"Error : {response.status_code}, {response.text}")
         data=response.json()
@@ -67,8 +83,8 @@ class Data_Mining():
         for place in places:
             country=place.get('country_code')
             city=place.get('full_name')
-            if country and city:
-                print(f"country_code:{country} city : {city}")
+            if country or city:
+                # print(f"country_code:{country} city : {city}")
                 country_code=country
                 full_name=city
         return country_code, full_name
@@ -78,38 +94,45 @@ class Data_Mining():
         #Method required by bearer token authentication.
         #"""
         r.headers["Authorization"] = f"Bearer {self.bearer_token}"
-        r.headers["User-Agent"] = "v2FullArchieveSearchPython"
+        #r.headers["User-Agent"] = "v2FullArchieveSearchPython"
         return r
     
     def connect_to_endpoint(self,url,params):
         response = requests.get(url, auth=self.bearer_oauth, params=params)
         print(response.status_code)
-        if response.status_code != 200: # 200 means that the request is successful.
-            raise Exception(response.status_code, response.text)
+        if response.status_code==429:
+            print("rate limit exceeded... sleeping for 15 minutes")
+            time.sleep(900) # Sleep for 15 minutes
+        if response.status_code==503:
+            print("Server overloaded... retrying in 3 minutes")
+            time.sleep(180)
         return response.json()
     
     def _json_to_csv(self,json_file, csv_file):
         with open(json_file, 'r') as file:
             tweets = json.load(file)
-
+        # print(tweets)
         with open(csv_file, 'a', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             # If this is the first row,
             if file.tell() == 0 :
                 # Head of the csv.file
                 writer.writerow(['tweets','keywords','tweet_id','Author ID','Date','Counutry','City'])
+            if 'data' in tweets:
+                for tweet in tweets['data']:
+                    text = tweet['text']
+                    keyword=KEYWORD,MUST
+                    id=tweet['id']
+                    author_id = tweet['author_id']
+                    date = tweet['created_at']
+                    #country=self.get_location_info(tweet_id=id)[0]
+                    country=''
+                    #city=self.get_location_info(tweet_id=id)[1]
+                    city=''
 
-            for tweet in tweets['data']:
-                text = tweet['text']
-                keyword=KEYWORD
-                id=tweet['id']
-                author_id = tweet['author_id']
-                date = tweet['created_at']
-                country=self.get_location_info(tweet_id=id)[0]
-                print(country)
-                city=self.get_location_info(tweet_id=id)[1]
-
-                writer.writerow([text,keyword,id,author_id,date,country,city])
+                    writer.writerow([text,keyword,id,author_id,date,country,city])
+            else:
+                pass
         print("CSV file saved successfully.")
 
 if __name__=="__main__":

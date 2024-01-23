@@ -38,7 +38,9 @@ class label():
         self.fileName=fileName
         self.listOfScores=[]
         self.listOfTools=self.Tool_list
-        self.df=pd.read_csv(self.fileName,encoding='latin1')
+        self.df=pd.read_csv(self.fileName,
+                            encoding='utf-8',
+                            encoding_errors='ignore')
         self.df['tweets']=self.df['tweets'].astype(str)
 
         # Print out the file name on the terminal 
@@ -121,13 +123,14 @@ class label():
         self.df['pysentiLM']=''
         print("Successfully set-up pysentiLM")
 
-        #CREATE stats COLUMNS
+        # CREATE stats COLUMNS
         self.df['mean']=''
         self.df['StandardDev']='' # Create std column
         self.df['FinalScore']='' # Final score column
         print('SETUP COMPLETE')
 
-    def label(self,output_file_average:str,
+    def label(self,
+              output_file_average:str,
               output_file_vote:str):
         """
         Comprehensive labeling function 
@@ -142,7 +145,7 @@ class label():
         """
 
         # Create instances ahead of for-loop
-        nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment', tokenize_no_ssplit=True)
+        nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment', tokenize_no_ssplit=True,use_gpu=False)
         vaderPre=SentimentIntensityAnalyzer()
         model = tweetnlp.Sentiment() # Create an instance
         sentiment_taskTWR = pipeline("sentiment-analysis", 
@@ -265,18 +268,11 @@ class label():
 
             #Build new columns in the dataframe.
             #Note: This will build new columns that indicate the majority vote.
-            columns_to_count=['Stanza','TextBlob','VADER','pattern','TweetNLP','TwitRoBERT','pysentiLM']
-            L=[]
-            for i in range (7):
-                index=df.columns.get_loc(columns_to_count[i])
-                L.extend([index])
-                print(f"index of column {columns_to_count[i]} is {index}")
-            
-            df['count_positive'] = (df.iloc[:, min(L):max(L)+1] == 1).sum(axis=1)
-            df['count_neutral'] = (df.iloc[:, min(L):max(L)+1] == 0).sum(axis=1)
-            df['count_negative'] = (df.iloc[:, min(L):max(L)+1] == -1).sum(axis=1)
-            print('Columns counted : ',df.columns[min(L):max(L)+1])
-            
+            df['count_positive'] = (df.iloc[:, 5:12] == 1).sum(axis=1)
+            df['count_neutral'] = (df.iloc[:, 5:12] == 0).sum(axis=1)
+            df['count_negative'] = (df.iloc[:, 5:12] == -1).sum(axis=1)
+            print('Columns counted : \n',df.columns[5:12])
+
             columns_to_compare = ['count_positive','count_neutral','count_negative']
 
             # Note: When there is no need to consider the average.
@@ -301,7 +297,7 @@ class label():
 
             df['FinalLabel'] = df.apply(vote, axis=1)
             #df=df.drop('FinalScore',axis=1)
-            df.to_csv(f'{output_file_vote}',mode='w')
+            df.to_csv(output_file_vote,mode='w')
             print(f"Data labeling by voting is completed. Output file : {output_file_vote}")
         
         majority_voting(df=df_average)

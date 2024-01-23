@@ -1,8 +1,8 @@
-from opennlp.mining import api
-from opennlp.preprocessing import data
-from opennlp.custommodel import model
-from opennlp.trainer import trainer
-from opennlp.run import LLM,ml,nn
+#from opennlp.mining import api
+#from opennlp.preprocessing import data
+#from opennlp.custommodel import model
+#from opennlp.trainer import trainer
+#from opennlp.run import LLM,ml,nn
 
 logo="""
 

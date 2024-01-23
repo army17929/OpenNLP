@@ -30,6 +30,7 @@ class ClassicalML():
                  output_col:str,
                  seed:int,test_size=0.2,encoding='utf-8'):
         self.df=pd.read_csv(data_path,encoding=encoding)
+        self.df[input_col]=self.df[input_col].astype(str)
         self.X=self.vectorize_data(text_column=input_col) # Input data
         self.y=self.df[output_col] # Output data
         self.num_class=len(self.df[output_col].unique()) # Number of class
@@ -57,7 +58,8 @@ class ClassicalML():
         #:param text_column: (str) name of the column that contains text
         #"""
         # Preprocess the data
-        self.df[text_column] = self.df[text_column].apply(self.preprocess_text)
+        self.df[text_column]=self.df[text_column].astype(str)
+        self.df[text_column]=self.df[text_column].apply(self.preprocess_text)
         # Define input and output
         X = self.df[text_column]
         # Vectorization

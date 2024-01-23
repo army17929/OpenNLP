@@ -2,12 +2,14 @@ from opennlp.trainer.trainer import TrainerFSDP,TrainerSingle,TrainerDDP,Trainer
 from opennlp.custommodel.model import CustomClassificationModel, peft, PEFTClassificationModel
 from opennlp.preprocessing.data import data_processor
 import os 
+from torch.utils.data import Dataset, DataLoader
 import time
 from pathlib import Path
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group,init_process_group
 import pandas as pd
 import torch
+from sklearn.metrics import classification_report
 from torch.distributed.fsdp import (MixedPrecision,
                                     ShardingStrategy,
                                     BackwardPrefetch,
@@ -35,18 +37,72 @@ class BERT():
     :param seed: (int) random seed for train and test split. 
     """
 
-    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): 
-        D=data_processor(path=data_path,input_col=input_col,
-                            output_col=output_col,encoding=encoding)
-        self.df=pd.read_csv(data_path,encoding=encoding)
-        self.df=D.label_converter()
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,output_col:str, num_class:int, 
+                 data_path=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42,
+                 encoding='utf-8'): 
+        D=data_processor(user_split=user_split,
+                         path=data_path,
+                         train_filepath=train_filepath,
+                         test_filepath=test_filepath,
+                         input_col=input_col,
+                         output_col=output_col,
+                         encoding=encoding)
+
         self.checkpoint='bert-base-uncased' # model checkpoint
-        self.X=self.df[input_col] 
-        self.y=self.df[output_col] 
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset_BERT(checkpoint=self.checkpoint)
-        
+
+        if not user_split:
+            self.df=pd.read_csv(data_path,
+                                encoding=encoding,
+                                encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+        if user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.df_test=pd.read_csv(test_filepath,
+                                     encoding=encoding,
+                                     encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+
+    def zeroshot_BERT(self,bs:int):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
+        model.to('cuda:0')
+        y_pred=[]
+        y_true=[]
+        # Prepare the dataloader 
+        testloader=DataLoader(self.test_dataset,
+                              batch_size=bs,
+                              shuffle=False)
+        with torch.no_grad():
+            for input,mask,tgt in testloader:
+                input=input.to('cuda:0')
+                mask=mask.to('cuda:0')
+                tgt=tgt.to('cuda:0')
+                out=model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+            result=classification_report(y_pred=y_pred,
+                                         y_true=y_true)
+            print(result)
+
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
         # This function fine tunes BERT on a single GPU.
@@ -255,18 +311,72 @@ class GPT():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,
+                 output_col:str,
+                 num_class:int,
+                 data_path:str,
+                 train_filepath:str,
+                 test_filepath:str,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         
-        D=data_processor(path=data_path,input_col=input_col,
-                        output_col=output_col,encoding=encoding)
-        self.df=pd.read_csv(data_path,encoding=encoding)
-        self.df=D.label_converter()
+        D=data_processor(user_split=user_split,
+                         path=data_path,
+                         train_filepath=train_filepath,
+                         test_filepath=test_filepath,
+                         input_col=input_col,
+                         output_col=output_col,
+                         encoding=encoding)
+        
+        # self.df=D.label_converter()
         self.checkpoint='gpt2' # model checkpoint
-        self.X=self.df[input_col] 
-        self.y=self.df[output_col] 
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint)
+        if not user_split:
+            self.df=pd.read_csv(data_path,
+                                encoding=encoding,
+                                encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+        if user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.df_test=pd.read_csv(test_filepath,
+                                     encoding=encoding,
+                                     encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+    def zeroshot_GPT(self,bs:int):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
+        model.to('cuda:0')
+        y_pred=[]
+        y_true=[]
+        testloader=DataLoader(self.test_dataset,
+                              batch_size=bs,
+                              shuffle=False)
+        with torch.no_grad():
+            for input,mask,tgt in testloader:
+                input=input.to('cuda:0')
+                mask=mask.to('cuda:0')
+                tgt=tgt.to('cuda:0')
+                out=model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+            result =classification_report(y_true=y_true,
+                                          y_pred=y_pred)
+            print(result)
+
 
     def run_GPT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
@@ -449,18 +559,71 @@ class Llama():
     :param val_size: (float) portion of validation data for training evaluation. 
     :param seed: (int) random seed for train and test split. 
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,num_class:int,
-                 max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,output_col:str,num_class:str,
+                 data_path=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 max_length=128,test_size=0.2,val_size=0.1,seed=42,
+                 encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         print("initializing Llama2...")
-        D=data_processor(path=data_path,input_col=input_col,
-                         output_col=output_col,encoding=encoding)
-        self.df=pd.read_csv(data_path,encoding=encoding) # Data we want to fine tune the model with. 
-        self.df=D.label_converter()
+        D=data_processor(user_split=user_split,
+                         path=data_path,
+                         train_filepath=train_filepath,
+                         test_filepath=test_filepath,
+                         input_col=input_col,
+                         output_col=output_col,
+                         encoding=encoding)
+        
         self.checkpoint='meta-llama/Llama-2-7b-hf' # model checkpoint
-        self.X=self.df[input_col] # Raw input data
-        self.y=self.df[output_col] # Raw output data
         self.num_class=num_class
-        self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint)
+        if not user_split:
+            self.df=pd.read_csv(data_path,
+                                encoding=encoding,
+                                encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+        if user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.df_test=pd.read_csv(test_filepath,
+                                     encoding=encoding,
+                                     encoding_errors='ignore')
+            self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
+                                                                                    max_length=max_length,
+                                                                                    test_size=test_size,
+                                                                                    val_size=val_size,
+                                                                                    seed=seed)
+
+    def zeroshot_LLAMA(self,bs:int):
+        model=CustomClassificationModel(checkpoint=self.checkpoint,
+                                        num_class=self.num_class)
+        model.to('cuda:0')
+        y_pred=[]
+        y_true=[]
+        # Prepare the dataloader 
+        testloader=DataLoader(self.test_dataset,
+                              batch_size=bs,
+                              shuffle=False)
+        with torch.no_grad():
+            for input,mask,tgt in testloader:
+                input=input.to('cuda:0')
+                mask=mask.to('cuda:0')
+                tgt=tgt.to('cuda:0')
+                out=model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+            result=classification_report(y_pred=y_pred,
+                                         y_true=y_true)
+            print(result)
 
     def run_LLAMA(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""

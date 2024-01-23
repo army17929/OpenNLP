@@ -172,7 +172,7 @@ class TrainerSingle:
         if epoch==self.const['total_epochs']-1 : # Save the loss and acc plot at the last epoch
             # Loss plot
             plt.clf() # Initialize the plot
-            plt.figure(figsize=(14,10))
+            plt.figure(figsize=(10,8))
             plt.subplot(1,2,1)
             plt.subplots_adjust(wspace=0.2)
             plt.plot(np.arange(1,self.const['total_epochs']+1),
@@ -231,6 +231,67 @@ class TrainerSingle:
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         self.runtime=runtime
 
+    def zeroshot_test(self,model):
+        model.eval()
+        y_true=[]
+        y_pred=[]
+        with torch.no_grad():
+            for input,mask,tgt in self.testloader:
+                input=input.to(self.gpu_id)
+                mask=mask.to(self.gpu_id)
+                tgt=tgt.to(self.gpu_id)
+                out=self.model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+                self.test_acc.update(out,tgt)
+
+        print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+    def custom_test(self,model_path):
+        self.model.load_state_dict(
+            torch.load(model_path,map_location="cpu"))
+        self.model.eval()
+        y_true=[]
+        y_pred=[]
+
+        with torch.no_grad():
+            for input,mask,tgt in self.testloader:
+                input=input.to(self.gpu_id)
+                mask=mask.to(self.gpu_id)
+                tgt=tgt.to(self.gpu_id)
+                out=self.model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+                self.test_acc.update(out,tgt)
+
+        print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+    
     def test(self):
         # Model evaluation function
         self.model.load_state_dict(torch.load(self.best_model_path))
@@ -340,6 +401,40 @@ class TrainerDDP(TrainerSingle):
         #self._save_checkpoint(epoch=torch.argmax(self.val_acc_array),model_name=f"Best_{self.const['model_name']}")
         self.best_model_path=self.const["trained_models"]/f"best_{self.const['model_name']}_epoch{torch.argmax(self.val_acc_array)+1}.pt" 
         self.runtime=runtime
+
+    def custom_test(self,model_path):
+        self.model.module.load_state_dict(
+            torch.load(model_path,map_location="cpu"))
+        self.model.eval()
+        y_true=[]
+        y_pred=[]
+
+        with torch.no_grad():
+            for input,mask,tgt in self.testloader:
+                input=input.to(self.gpu_id)
+                mask=mask.to(self.gpu_id)
+                tgt=tgt.to(self.gpu_id)
+                out=self.model(input,mask)
+                pred=torch.argmax(out,dim=1)
+                y_pred.extend(pred.tolist())
+                y_true.extend(tgt.tolist())
+                if self.num_class==2:
+                    out=torch.argmax(out,dim=1)
+                self.test_acc.update(out,tgt)
+
+        print(f"[GPU{self.gpu_id} Test Acc : {100*self.test_acc.compute().item():4f}%]")
+        result=classification_report(y_true,y_pred)
+        print(result)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                        save_dir=f"/{self.const['model_name']}_epoch_{self.const['total_epochs']}_batch_{self.const['batch_size']}_{self.world_size}gpu",
+                        model_name=f"{self.const['model_name']}",runtime=self.runtime)
+
+
 
     def test(self):
         self.model.module.load_state_dict(
