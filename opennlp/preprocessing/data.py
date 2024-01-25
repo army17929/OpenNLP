@@ -24,6 +24,7 @@ class data_processor():
                  path=None,
                  train_filepath=None, # If user split is True,
                  test_filepath=None,
+                 lineterminator=None,
                  encoding_errors='ignore'):
 
         self.input_col=input_col
@@ -34,13 +35,16 @@ class data_processor():
             self.path=path
             self.df=pd.read_csv(path,
                                 encoding=encoding,
+                                lineterminator=lineterminator,
                                 encoding_errors=encoding_errors)
         if self.user_split:
             self.df_train=pd.read_csv(train_filepath,
                                       encoding=encoding,
+                                      lineterminator=lineterminator,
                                       encoding_errors=encoding_errors)
             self.df_test=pd.read_csv(test_filepath,
                                       encoding=encoding,
+                                      lineterminator=lineterminator,
                                       encoding_errors=encoding_errors)
         
     def label_converter(self,df):
@@ -119,10 +123,6 @@ class data_processor():
                                                 random_state=seed).index)
             y_train=y_train.drop(y_train.sample(n=int(len(y_train)*val_size),
                                                 random_state=seed).index)
-            print(f"====User custom dataset STAT====")
-            print(f"Training points :{X_train.shape[0]}")
-            print(f"Test points : {X_test.shape[0]}")
-            print(f"Validation points : {X_val.shape[0]}")
             
         # Prepare for the input ids
         X_train_text=[str(text) for text in X_train]

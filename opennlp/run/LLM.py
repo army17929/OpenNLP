@@ -43,6 +43,7 @@ class BERT():
                  data_path=None,
                  train_filepath=None,
                  test_filepath=None,
+                 lineterminator=None,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,
                  encoding='utf-8'): 
         D=data_processor(user_split=user_split,
@@ -51,34 +52,57 @@ class BERT():
                          test_filepath=test_filepath,
                          input_col=input_col,
                          output_col=output_col,
+                         lineterminator=lineterminator,
                          encoding=encoding)
 
         self.checkpoint='bert-base-uncased' # model checkpoint
         self.num_class=num_class
 
         if not user_split:
+            print(f"===Training and Test dataset will be splitted by scikit-learn...===")
+            print(f"===RANDOM SEED : {seed}===")
             self.df=pd.read_csv(data_path,
                                 encoding=encoding,
+                                lineterminator=lineterminator,
                                 encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
                                                                                     test_size=test_size,
                                                                                     val_size=val_size,
                                                                                     seed=seed)
+            if self.num_class!=len(self.df[output_col].unique()):
+                print(f"Check your dataset, the number of class in column : {output_col} does note match with your actual dataset.")
+                raise ValueError 
+            
         if user_split:
+            print(f"Using user defined training and test dataset...")
             self.df_train=pd.read_csv(train_filepath,
                                       encoding=encoding,
+                                      lineterminator=lineterminator,
                                       encoding_errors='ignore')
             self.df_test=pd.read_csv(test_filepath,
                                      encoding=encoding,
+                                     lineterminator=lineterminator,
                                      encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
                                                                                     test_size=test_size,
                                                                                     val_size=val_size,
                                                                                     seed=seed)
+            if self.num_class!=len(self.df_train[output_col].unique()):
+                print(f"Check your dataset, the number of class in column : {output_col} does note match with your actual dataset.")
+                raise ValueError 
+            if self.num_class!=len(self.df_test[output_col].unique()):
+                print(f"Check your dataset, the number of class in column : {output_col} does note match with your actual dataset.")
+                raise ValueError 
+            
+            print(f"====User custom dataset STAT====")
+            print(f"Training points :{int(self.df_train.shape[0]*(1-val_size))}")
+            print(f"Validation points :{int(self.df_train.shape[0]*(val_size))}")
+            print(f"Test points : {self.df_test.shape[0]}")
 
     def zeroshot_BERT(self,bs:int):
+        
         model=CustomClassificationModel(checkpoint=self.checkpoint,
                                         num_class=self.num_class)
         model.to('cuda:0')
@@ -88,6 +112,7 @@ class BERT():
         testloader=DataLoader(self.test_dataset,
                               batch_size=bs,
                               shuffle=False)
+        start=time.time()
         with torch.no_grad():
             for input,mask,tgt in testloader:
                 input=input.to('cuda:0')
@@ -102,6 +127,9 @@ class BERT():
             result=classification_report(y_pred=y_pred,
                                          y_true=y_true)
             print(result)
+        end=time.time()
+        print(f"=====RUNTIME=====")
+        print(f"{end-start:.2f} sec")
 
     def run_BERT(self,epochs:int,bs:int,lr:float,save_every:int,gpu_id=0):
         #"""
@@ -316,9 +344,10 @@ class GPT():
                  input_col:str,
                  output_col:str,
                  num_class:int,
-                 data_path:str,
-                 train_filepath:str,
-                 test_filepath:str,
+                 data_path=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 lineterminator=None,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         
         D=data_processor(user_split=user_split,
@@ -327,6 +356,7 @@ class GPT():
                          test_filepath=test_filepath,
                          input_col=input_col,
                          output_col=output_col,
+                         lineterminator=lineterminator,
                          encoding=encoding)
         
         # self.df=D.label_converter()
@@ -335,6 +365,7 @@ class GPT():
         if not user_split:
             self.df=pd.read_csv(data_path,
                                 encoding=encoding,
+                                lineterminator=lineterminator,
                                 encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
@@ -344,9 +375,11 @@ class GPT():
         if user_split:
             self.df_train=pd.read_csv(train_filepath,
                                       encoding=encoding,
+                                      lineterminator=lineterminator,
                                       encoding_errors='ignore')
             self.df_test=pd.read_csv(test_filepath,
                                      encoding=encoding,
+                                     lineterminator=lineterminator,
                                      encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
@@ -565,6 +598,7 @@ class Llama():
                  data_path=None,
                  train_filepath=None,
                  test_filepath=None,
+                 lineterminator=None,
                  max_length=128,test_size=0.2,val_size=0.1,seed=42,
                  encoding='utf-8'): # Model name should be BERT,GPT or LLAMA
         print("initializing Llama2...")
@@ -574,6 +608,7 @@ class Llama():
                          test_filepath=test_filepath,
                          input_col=input_col,
                          output_col=output_col,
+                         lineterminator=lineterminator,
                          encoding=encoding)
         
         self.checkpoint='meta-llama/Llama-2-7b-hf' # model checkpoint
@@ -581,6 +616,7 @@ class Llama():
         if not user_split:
             self.df=pd.read_csv(data_path,
                                 encoding=encoding,
+                                lineterminator=lineterminator,
                                 encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
@@ -590,9 +626,11 @@ class Llama():
         if user_split:
             self.df_train=pd.read_csv(train_filepath,
                                       encoding=encoding,
+                                      lineterminator=lineterminator,
                                       encoding_errors='ignore')
             self.df_test=pd.read_csv(test_filepath,
                                      encoding=encoding,
+                                     lineterminator=lineterminator,
                                      encoding_errors='ignore')
             self.train_dataset,self.test_dataset,self.val_dataset=D.prepare_dataset(checkpoint=self.checkpoint,
                                                                                     max_length=max_length,
