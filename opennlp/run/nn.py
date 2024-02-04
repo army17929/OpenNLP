@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from keras.preprocessing.text import Tokenizer
 from keras_preprocessing.sequence import pad_sequences
 from keras.models import Sequential
-from keras.layers import Embedding,LSTM,Dense
+from keras.layers import Embedding,LSTM,Dense,Conv1D,GlobalMaxPool1D
 from keras.utils import to_categorical
 from opennlp.run.ml import ClassicalML
 from opennlp.trainer.trainer import metrics_generator, binary_metrics_generator, PlotTraining
@@ -32,6 +32,7 @@ class _LSTM():
                  data_path=None,
                  train_filepath=None,
                  test_filepath=None,
+                 input_length=64,
                  encoding='utf-8'):
         self.user_split=user_split
         if self.user_split==False:
@@ -41,6 +42,7 @@ class _LSTM():
                                 encoding_errors='ignore')
             self.X=self.df[input_col] # Raw text
             self.y=self.df[output_col]
+            self.num_class=len(self.y.unique())
         if self.user_split:
             self.df_train=pd.read_csv(train_filepath,
                                       lineterminator=lineterminator,
@@ -51,21 +53,22 @@ class _LSTM():
                                       encoding=encoding,
                                       encoding_errors='ignore')
             self.X_train=self.df_train[input_col]
-            self.X_test=self.df_train[output_col]
-            self.y_train=self.df_test[input_col]
+            self.X_test=self.df_test[input_col]
+            self.y_train=self.df_train[output_col]
             self.y_test=self.df_test[output_col]
-        self.num_class=len(self.y.unique())
+            self.num_class=len(self.y_train.unique())
         self.total_epochs=num_epochs
         self.batch_size=bs
         self.tokenizer=Tokenizer()
         self.num_layers=num_layers
         self.num_nodes=num_nodes
         self.model=Sequential()
+        self.input_length=input_length
 
     def tokenize(self,X,y):
         self.tokenizer.fit_on_texts(X)
         X_sequence=self.tokenizer.texts_to_sequences(X)
-        X_padded=pad_sequences(X_sequence)
+        X_padded=pad_sequences(X_sequence,maxlen=self.input_length)
         y_encoded,y_classes=pd.factorize(y)
         y_categorical=to_categorical(y_encoded)
         return X_padded,y_categorical
@@ -77,7 +80,7 @@ class _LSTM():
         :param input_length: (int) maxumum length of input data. This will be input dimension of the embedding layer.
         :return model: (object) LSTM 
         """
-        self.model.add(Embedding(input_dim=len(self.tokenizer.word_index)+1,
+        self.model.add(Embedding(input_dim=self.input_length,
                 output_dim=self.num_nodes,
                 input_length=input_length))
         for i in range (self.num_layers) :
@@ -96,17 +99,25 @@ class _LSTM():
         if self.user_split==False:
             X,y=self.tokenize(self.X,self.y)
             X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
+            model=self.build_model(input_length=self.input_length)
         if self.user_split:
-            X_train,X_test=self.X_train,self.X_test
-            y_train,y_test=self.y_train,self.y_test
+            
+            X_train,y_train=self.tokenize(self.X_train,self.y_train)
+            print(X_train,y_train)
+            print(self.X_test,self.y_test)
+            self.X_test=self.X_test.astype(str)
+            X_test,y_test=self.tokenize(self.X_test,self.y_test)
+            model=self.build_model(input_length=self.input_length)
 
-        model=self.build_model(input_length=X.shape[1])
         # Compile the model.
         model.compile(loss='categorical_crossentropy',
                     optimizer='adam',
                     metrics=['accuracy'])
         start=time.time()
-        history=model.fit(X_train,y_train,epochs=self.total_epochs,batch_size=self.batch_size,validation_split=0.1)
+        history=model.fit(X_train,y_train,
+                          epochs=self.total_epochs,
+                          batch_size=self.batch_size,
+                          validation_split=0.1)
         end=time.time()
         runtime=end-start
         print(f"RUNTIME {runtime:.2f} sec")
@@ -223,5 +234,120 @@ class MLP():
                           model_name='MLP',
                           runtime=runtime)
 
-
+class CNN():
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,output_col:str,
+                 num_epochs:int,num_nodes:int,num_layers:int,
+                 num_conv:int,filter:int,kernel:int,
+                 bs:int,lineterminator=None,
+                 input_length=32,
+                 data_path=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 encoding='utf-8'):
+        self.user_split=user_split
+        if self.user_split==False:
+            self.df=pd.read_csv(data_path,
+                                encoding=encoding,
+                                lineterminator=lineterminator,
+                                encoding_errors='ignore')
+            self.X=self.df[input_col]
+            self.y=self.df[output_col]
+            self.num_class=len(self.y.unique())
+        if self.user_split==True:
+            self.df_train=pd.read_csv(train_filepath,
+                                      encoding=encoding,
+                                      lineterminator=lineterminator,
+                                      encoding_errors='ignore')
+            self.X_train=self.df_train[input_col]
+            self.y_train=self.df_train[output_col]
+            self.df_test=pd.read_csv(test_filepath,
+                                     encoding=encoding,
+                                     lineterminator=lineterminator,
+                                     encoding_errors='ignore')
+            self.X_test=self.df_test[input_col]
+            self.y_test=self.df_test[output_col]
+            self.num_class=len(self.y_train.unique())
+        self.total_epochs=num_epochs
+        self.num_nodes=num_nodes
+        self.num_layers=num_layers
+        self.bs=bs
+        self.kernel=kernel
+        self.filter=filter
+        self.num_conv=num_conv
+        self.input_length=input_length
+        self.tokenizer=Tokenizer()
+        self.model=Sequential()
+    
+    def tokenize(self,X,y):
+        self.tokenizer.fit_on_texts(X)
+        X_sequence=self.tokenizer.texts_to_sequences(X)
+        X_padded=pad_sequences(X_sequence)
+        y_encoded,y_classes=pd.factorize(y_encoded)
+        y_categorical=to_categorical(y_encoded)
+        return X_padded,y_categorical
+    
+    def build_model(self):
+        self.model.add(Embedding(input_dim=self.input_length,
+                                 output_dim=self.num_nodes,
+                                 input_length=self.input_length))
+        i=1
+        # Convloution layers
+        while(i<=self.num_conv):
+            self.model.add(Conv1D(filters=self.filter,
+                                  kernel_size=self.kernel,
+                                  activation='relu'))
+            i+=1
+        # Max pooling layer
+        self.model.add(GlobalMaxPool1D())
+        # Hidden layers
+        j=1
+        while(j<=self.num_layers):
+            self.model.add(Dense(self.num_layers,
+                                 activation='relu'))
+            j+=1
+        self.model.add(Dense(self.num_class,
+                             activation='softmax'))
+        print(self.model.summary)
+        return self.model
+    
+    def run_CNN(self):
+        if self.user_split==False:
+            X,y=self.tokenize(self.X,self.y)
+            X_train,X_test,y_train,y_test=train_test_split(X,y,
+                                                           test_size=0.2,
+                                                           random_state=42)
+        if self.user_split:
+            X_train,y_train=self.tokenize(self.X_train,self.y_train)
+            X_test,y_test=self.tokenize(self.X_test,self.y_test)
+        model=self.build_model()
+        # Complile the model
+        model.compile(optimizer='adam',
+                      loss='categorical_crossentropy',
+                      metrics=['accuracy'])
+        model.summary()
+        # Fit the model
+        start=time.time()
+        history=model.fit(X_train,y_train,
+                          epochs=self.total_epochs,
+                          batch_size=self.bs,
+                          validation_split=0.1)
+        end=time.time()
+        runtime=end-start
+        print(f"RUNTIME {runtime:.2f} sec")
+        PlotTraining(history=history,
+                     savedir=f"/CNN_{self.num_layers}layers_{self.num_nodes}nodes",
+                    model_name="CNN")
+        logit=model.predict(X_test)
+        y_pred=np.argmax(logit,axis=1)
+        y_true=np.argmax(y_test,axis=1)
+        if self.num_class==2:
+            binary_metrics_generator(y_true=y_true,y_pred=y_pred,
+                          save_dir=f"/CNN_{self.num_layers}layers_{self.num_nodes}nodes",
+                          model_name="CNN",runtime=runtime)    
+        else:
+            metrics_generator(y_true=y_true,y_pred=y_pred,
+                          save_dir=f"/CNN_{self.num_layers}layers_{self.num_nodes}nodes",
+                          model_name="CNN",runtime=runtime)
 
