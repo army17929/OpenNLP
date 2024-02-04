@@ -101,10 +101,7 @@ class _LSTM():
             X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
             model=self.build_model(input_length=self.input_length)
         if self.user_split:
-            
             X_train,y_train=self.tokenize(self.X_train,self.y_train)
-            print(X_train,y_train)
-            print(self.X_test,self.y_test)
             self.X_test=self.X_test.astype(str)
             X_test,y_test=self.tokenize(self.X_test,self.y_test)
             model=self.build_model(input_length=self.input_length)
@@ -283,8 +280,8 @@ class CNN():
     def tokenize(self,X,y):
         self.tokenizer.fit_on_texts(X)
         X_sequence=self.tokenizer.texts_to_sequences(X)
-        X_padded=pad_sequences(X_sequence)
-        y_encoded,y_classes=pd.factorize(y_encoded)
+        X_padded=pad_sequences(X_sequence,maxlen=self.input_length)
+        y_encoded,y_classes=pd.factorize(y)
         y_categorical=to_categorical(y_encoded)
         return X_padded,y_categorical
     
@@ -320,6 +317,7 @@ class CNN():
                                                            random_state=42)
         if self.user_split:
             X_train,y_train=self.tokenize(self.X_train,self.y_train)
+            self.X_test=self.X_test.astype(str)
             X_test,y_test=self.tokenize(self.X_test,self.y_test)
         model=self.build_model()
         # Complile the model
