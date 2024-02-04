@@ -23,12 +23,37 @@ class _LSTM():
     :param num_layers: (int) number of hidden layers in LSTM
     :param bs: (int) batch size for training
     """
-    def __init__(self,data_path:str,input_col:str,output_col:str,
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str,output_col:str,
                  num_epochs:int,
-                 num_nodes:int,num_layers:int,bs:int,encoding='utf-8'):
-        self.df=pd.read_csv(data_path,encoding=encoding)
-        self.X=self.df[input_col] # Raw text
-        self.y=self.df[output_col]
+                 num_nodes:int,num_layers:int,bs:int,
+                 lineterminator=None,
+                 data_path=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 encoding='utf-8'):
+        self.user_split=user_split
+        if self.user_split==False:
+            self.df=pd.read_csv(data_path,
+                                lineterminator=lineterminator,
+                                encoding=encoding,
+                                encoding_errors='ignore')
+            self.X=self.df[input_col] # Raw text
+            self.y=self.df[output_col]
+        if self.user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      lineterminator=lineterminator,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.df_test=pd.read_csv(test_filepath,
+                                      lineterminator=lineterminator,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.X_train=self.df_train[input_col]
+            self.X_test=self.df_train[output_col]
+            self.y_train=self.df_test[input_col]
+            self.y_test=self.df_test[output_col]
         self.num_class=len(self.y.unique())
         self.total_epochs=num_epochs
         self.batch_size=bs
@@ -68,13 +93,18 @@ class _LSTM():
         #"""
         #LSTM training function 
         #"""
-        X,y=self.tokenize(self.X,self.y)
-        X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
+        if self.user_split==False:
+            X,y=self.tokenize(self.X,self.y)
+            X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2)
+        if self.user_split:
+            X_train,X_test=self.X_train,self.X_test
+            y_train,y_test=self.y_train,self.y_test
+
         model=self.build_model(input_length=X.shape[1])
-        
         # Compile the model.
         model.compile(loss='categorical_crossentropy',
-                    optimizer='adam', metrics=['accuracy'])
+                    optimizer='adam',
+                    metrics=['accuracy'])
         start=time.time()
         history=model.fit(X_train,y_train,epochs=self.total_epochs,batch_size=self.batch_size,validation_split=0.1)
         end=time.time()
@@ -107,11 +137,39 @@ class MLP():
     :param hidden_layer_sizes: (set) set of number of nodes in the layers. Example: ``(20,30,50)`` for model with 3 hidden layers
     :param max_iter: (int) maximum number of iteration
     """
-    def __init__(self,data_path:str,input_col:str, 
-                 output_col:str,bs:int,lr:float,
-                 hidden_layer_sizes:set,max_iter:int,encoding='utf-8'):
+    def __init__(self,
+                 user_split:bool,
+                 input_col:str, output_col:str,bs:int,lr:float,
+                 hidden_layer_sizes:set,max_iter:int,
+                 data_path=None,
+                 lineterminator=None,
+                 train_filepath=None,
+                 test_filepath=None,
+                 encoding='utf-8'):
+        self.user_split=user_split
+        if self.user_split==False:
+            self.df=pd.read_csv(data_path,
+                                lineterminator=lineterminator,
+                                encoding=encoding,
+                                encoding_errors='ignore')
+            self.X=self.df[input_col] # Raw text
+            self.y=self.df[output_col]         
+        if self.user_split:
+            self.df_train=pd.read_csv(train_filepath,
+                                      lineterminator=lineterminator,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.df_test=pd.read_csv(test_filepath,
+                                      lineterminator=lineterminator,
+                                      encoding=encoding,
+                                      encoding_errors='ignore')
+            self.X_train=self.df_train[input_col]
+            self.X_test=self.df_train[output_col]
+            self.y_train=self.df_test[input_col]
+            self.y_test=self.df_test[output_col]   
         self.data_path=data_path
-        self.df=pd.read_csv(data_path,encoding=encoding)
+        self.train_filepath=train_filepath
+        self.test_filepath=test_filepath
         self.input_col=input_col
         self.output_col=output_col
         self.num_class=len(self.df[self.output_col].unique())
@@ -123,11 +181,28 @@ class MLP():
                                                 max_iter=max_iter)
     
     def run_MLP(self):
-        ml=ClassicalML(data_path=self.data_path,input_col=self.input_col,output_col=self.output_col,seed=42)
-        X=ml.vectorize_data(self.input_col)
-        y=self.df[self.output_col]
-        X_train,X_test,y_train,y_test=train_test_split(X,y,
-                                               test_size=0.2)
+        if self.user_split==False:
+            ml=ClassicalML(data_path=self.data_path,
+                        input_col=self.input_col,
+                        output_col=self.output_col,
+                        seed=42)
+            X=ml.vectorize_data(self.input_col)
+            y=self.df[self.output_col]
+            X_train,X_test,y_train,y_test=train_test_split(X,y,
+                                                test_size=0.2)
+        if self.user_split==True:
+            ml_train=ClassicalML(data_path=self.train_filepath,
+                    input_col=self.input_col,
+                    output_col=self.output_col,
+                    seed=42)
+            ml_test=ClassicalML(data_path=self.test_filepath,
+                                input_col=self.input_col,
+                                output_col=self.output_col,
+                                seed=42)
+            X_train=ml_train.vectorize_data(self.input_col)
+            X_test=ml_test.vectorize_data(self.input_col)
+            y_train=ml_train.vectorize_data(self.output_col)
+            y_test=ml_test.vectorize_data(self.output_col)
         model=self.model
         start=time.time()
         model.fit(X_train,y_train)
