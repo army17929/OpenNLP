@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn import neural_network 
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
 from keras.preprocessing.text import Tokenizer
 from keras_preprocessing.sequence import pad_sequences
 from keras.models import Sequential
@@ -56,6 +57,10 @@ class _LSTM():
             self.X_test=self.df_test[input_col]
             self.y_train=self.df_train[output_col]
             self.y_test=self.df_test[output_col]
+            print(f"X_train {self.X_train}")
+            print(f"X_test {self.X_test}")
+            print(f"y_train {self.y_train}")
+            print(f"y_test {self.y_test}")
             self.num_class=len(self.y_train.unique())
         self.total_epochs=num_epochs
         self.batch_size=bs
@@ -104,6 +109,8 @@ class _LSTM():
             X_train,y_train=self.tokenize(self.X_train,self.y_train)
             self.X_test=self.X_test.astype(str)
             X_test,y_test=self.tokenize(self.X_test,self.y_test)
+            print(f"y_test {y_test}")
+            print(f"X_test {X_test}")
             model=self.build_model(input_length=self.input_length)
 
         # Compile the model.
@@ -115,6 +122,7 @@ class _LSTM():
                           epochs=self.total_epochs,
                           batch_size=self.batch_size,
                           validation_split=0.1)
+        print(f"HISTORY : {history}")
         end=time.time()
         runtime=end-start
         print(f"RUNTIME {runtime:.2f} sec")
@@ -124,6 +132,10 @@ class _LSTM():
         logit=model.predict(X_test)
         y_pred=np.argmax(logit,axis=1)
         y_true=np.argmax(y_test,axis=1)
+        print("prediction",y_pred)
+        print("true labels",y_true)
+        report=classification_report(y_pred=y_pred,y_true=y_true)
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=y_true,y_pred=y_pred,
                           save_dir=f"/LSTM_{self.num_layers}layers_{self.num_nodes}nodes",
@@ -161,7 +173,8 @@ class MLP():
                                 encoding=encoding,
                                 encoding_errors='ignore')
             self.X=self.df[input_col] # Raw text
-            self.y=self.df[output_col]         
+            self.y=self.df[output_col]       
+            self.num_class=len(self.df[self.output_col].unique())  
         if self.user_split:
             self.df_train=pd.read_csv(train_filepath,
                                       lineterminator=lineterminator,
@@ -174,13 +187,13 @@ class MLP():
             self.X_train=self.df_train[input_col]
             self.X_test=self.df_train[output_col]
             self.y_train=self.df_test[input_col]
-            self.y_test=self.df_test[output_col]   
+            self.y_test=self.df_test[output_col]
+            self.num_class=len(self.df_train[self.output_col].unique())   
         self.data_path=data_path
         self.train_filepath=train_filepath
         self.test_filepath=test_filepath
         self.input_col=input_col
         self.output_col=output_col
-        self.num_class=len(self.df[self.output_col].unique())
         self.hidden_layer_sizes=hidden_layer_sizes
         self.num_layers=len(hidden_layer_sizes)
         self.batch_size=bs
@@ -218,6 +231,7 @@ class MLP():
         runtime=end-start
         print(f"RUNTIME : {runtime}")
         y_pred=model.predict(X_test)
+        report=classification_report(y_pred=y_pred,y_true=y_test)
         if self.num_class==2:
             binary_metrics_generator(y_true=y_test,
                           y_pred=y_pred,
@@ -340,6 +354,8 @@ class CNN():
         logit=model.predict(X_test)
         y_pred=np.argmax(logit,axis=1)
         y_true=np.argmax(y_test,axis=1)
+        report=classification_report(y_pred=y_pred,y_true=y_true)
+        print(report)
         if self.num_class==2:
             binary_metrics_generator(y_true=y_true,y_pred=y_pred,
                           save_dir=f"/CNN_{self.num_layers}layers_{self.num_nodes}nodes",
