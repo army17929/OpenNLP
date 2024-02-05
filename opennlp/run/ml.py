@@ -28,8 +28,13 @@ class ClassicalML():
     """
     def __init__(self,data_path:str,input_col:str,
                  output_col:str,
-                 seed:int,test_size=0.2,encoding='utf-8'):
-        self.df=pd.read_csv(data_path,encoding=encoding)
+                 seed:int,
+                 lineterminator=None,
+                 test_size=0.2,encoding='utf-8'):
+        self.df=pd.read_csv(data_path,
+                            lineterminator=lineterminator,
+                            encoding_errors='ignore',
+                            encoding=encoding)
         self.df[input_col]=self.df[input_col].astype(str)
         self.X=self.vectorize_data(text_column=input_col) # Input data
         self.y=self.df[output_col] # Output data

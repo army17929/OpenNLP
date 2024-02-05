@@ -169,6 +169,7 @@ class MLP():
         self.user_split=user_split
         self.input_col=input_col
         self.output_col=output_col
+        self.lineterminator=lineterminator
         if self.user_split==False:
             self.df=pd.read_csv(data_path,
                                 lineterminator=lineterminator,
@@ -206,6 +207,7 @@ class MLP():
             ml=ClassicalML(data_path=self.data_path,
                         input_col=self.input_col,
                         output_col=self.output_col,
+                        lineterminator=self.lineterminator,
                         seed=42)
             X=ml.vectorize_data(self.input_col)
             y=self.df[self.output_col]
