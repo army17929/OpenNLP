@@ -167,6 +167,8 @@ class MLP():
                  test_filepath=None,
                  encoding='utf-8'):
         self.user_split=user_split
+        self.input_col=input_col
+        self.output_col=output_col
         if self.user_split==False:
             self.df=pd.read_csv(data_path,
                                 lineterminator=lineterminator,
@@ -192,8 +194,6 @@ class MLP():
         self.data_path=data_path
         self.train_filepath=train_filepath
         self.test_filepath=test_filepath
-        self.input_col=input_col
-        self.output_col=output_col
         self.hidden_layer_sizes=hidden_layer_sizes
         self.num_layers=len(hidden_layer_sizes)
         self.batch_size=bs
