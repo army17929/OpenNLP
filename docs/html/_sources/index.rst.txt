@@ -9,8 +9,11 @@ Welcome to OpenNLP Documentatiion's documentation!
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-
-
+   
+   Motivation
+   Introduction 
+   usage
+   examples
 
 Indices and tables
 ==================
